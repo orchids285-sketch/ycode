@@ -5,6 +5,7 @@ import { Editor } from '@tiptap/core';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
@@ -16,6 +17,7 @@ export interface RichTextImagePopoverProps {
   trigger: React.ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onChangeImage?: () => void;
   disabled?: boolean;
 }
 
@@ -24,11 +26,13 @@ export default function RichTextImagePopover({
   trigger,
   open,
   onOpenChange,
+  onChangeImage,
   disabled = false,
 }: RichTextImagePopoverProps) {
   const [altText, setAltText] = useState('');
   const [widthValue, setWidthValue] = useState('');
   const [heightValue, setHeightValue] = useState('');
+  const [imageSrc, setImageSrc] = useState('');
   const [savedPos, setSavedPos] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +112,7 @@ export default function RichTextImagePopover({
       setAltText(node.attrs.alt || '');
       setWidthValue(node.attrs.width || '');
       setHeightValue(node.attrs.height || '');
+      setImageSrc(node.attrs.src || '');
       setSavedPos(selection.from);
     }
   }, [open, editor]);
@@ -142,6 +147,35 @@ export default function RichTextImagePopover({
           isOpen={true}
           onToggle={() => {}}
         >
+          {imageSrc && (
+            <div className="grid grid-cols-3 items-start">
+              <Label variant="muted" className="pt-2">File</Label>
+              <div className="col-span-2">
+                <div
+                  className="relative group bg-secondary/30 hover:bg-secondary/60 rounded-md w-full aspect-3/2 overflow-hidden cursor-pointer"
+                  onClick={onChangeImage}
+                >
+                  <div className="absolute inset-0 opacity-5 bg-checkerboard" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageSrc}
+                    className="relative w-full h-full object-contain z-10"
+                    alt="Image preview"
+                  />
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center px-2 py-1 opacity-0 group-hover:opacity-100 z-20">
+                    <Button
+                      type="button"
+                      variant="overlay"
+                      size="sm"
+                    >
+                      Change file
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-3">
             <Label variant="muted">ALT</Label>
             <div className="col-span-2 *:w-full">

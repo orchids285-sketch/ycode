@@ -824,6 +824,30 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     addFieldVariable: addFieldVariableInternal,
   }), [addFieldVariableInternal]);
 
+  const handleChangeImage = useCallback(() => {
+    if (!editor) return;
+    const { selection } = editor.state;
+    const node = editor.state.doc.nodeAt(selection.from);
+    if (node?.type.name !== 'richTextImage') return;
+    const pos = selection.from;
+
+    openFileManager(
+      (asset: Asset) => {
+        if (!asset.public_url) return;
+        const current = editor.state.doc.nodeAt(pos);
+        if (current?.type.name !== 'richTextImage') return;
+        const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+          ...current.attrs,
+          src: asset.public_url,
+          assetId: asset.id,
+        });
+        editor.view.dispatch(tr);
+      },
+      undefined,
+      'images'
+    );
+  }, [editor, openFileManager]);
+
   if (!editor) {
     return null;
   }
@@ -1071,6 +1095,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
               editor={editor}
               open={imagePopoverOpen}
               onOpenChange={setImagePopoverOpen}
+              onChangeImage={handleChangeImage}
               disabled={disabled}
               trigger={
                 <ToggleGroupItem
@@ -1377,6 +1402,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
             editor={editor}
             open={imagePopoverOpen}
             onOpenChange={setImagePopoverOpen}
+            onChangeImage={handleChangeImage}
             disabled={disabled}
             trigger={
               <Button
