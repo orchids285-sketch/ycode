@@ -3161,7 +3161,9 @@ function renderTiptapToHtml(
     const alt = content.attrs?.alt ? escapeHtml(content.attrs.alt) : '';
     const imgClass = textStyles?.richTextImage?.classes || '';
     const classAttr = imgClass ? ` class="${escapeHtml(imgClass)}"` : '';
-    return `<img src="${src}" alt="${alt}"${classAttr} />`;
+    const widthAttr = content.attrs?.width ? ` width="${escapeHtml(content.attrs.width)}"` : '';
+    const heightAttr = content.attrs?.height ? ` height="${escapeHtml(content.attrs.height)}"` : '';
+    return `<img src="${src}" alt="${alt}"${widthAttr}${heightAttr}${classAttr} />`;
   }
 
   // Handle embedded component blocks

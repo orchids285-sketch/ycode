@@ -4,7 +4,7 @@ import { mergeAttributes } from '@tiptap/core';
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     richTextImage: {
-      setRichTextImage: (attrs: { src: string; alt?: string; assetId?: string }) => ReturnType;
+      setRichTextImage: (attrs: { src: string; alt?: string; assetId?: string; width?: string; height?: string }) => ReturnType;
     };
   }
 }
@@ -31,6 +31,22 @@ export const RichTextImage = Image.extend({
           return { 'data-asset-id': attributes.assetId };
         },
       },
+      width: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('width') || null,
+        renderHTML: (attributes) => {
+          if (!attributes.width) return {};
+          return { width: attributes.width };
+        },
+      },
+      height: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('height') || null,
+        renderHTML: (attributes) => {
+          if (!attributes.height) return {};
+          return { height: attributes.height };
+        },
+      },
     };
   },
 
@@ -53,6 +69,8 @@ export const RichTextImage = Image.extend({
                 src: attrs.src,
                 alt: attrs.alt || null,
                 assetId: attrs.assetId || null,
+                width: attrs.width || null,
+                height: attrs.height || null,
               },
             });
           },

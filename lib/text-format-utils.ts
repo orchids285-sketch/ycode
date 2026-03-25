@@ -571,6 +571,8 @@ function renderInlineContent(
       if (node.attrs?.assetId) {
         imgProps['data-asset-id'] = node.attrs.assetId;
       }
+      if (node.attrs?.width) imgProps.width = node.attrs.width;
+      if (node.attrs?.height) imgProps.height = node.attrs.height;
       return [React.createElement('img', imgProps)];
     }
 
@@ -788,6 +790,8 @@ function renderBlock(
     if (block.attrs?.assetId) {
       imgProps['data-asset-id'] = block.attrs.assetId;
     }
+    if (block.attrs?.width) imgProps.width = block.attrs.width;
+    if (block.attrs?.height) imgProps.height = block.attrs.height;
     return React.createElement('img', imgProps);
   }
 

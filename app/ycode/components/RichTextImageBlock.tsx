@@ -6,12 +6,16 @@ import { cn } from '@/lib/utils';
 interface RichTextImageBlockProps {
   src: string;
   alt: string;
+  width?: string | null;
+  height?: string | null;
   isSelected: boolean;
 }
 
 export default function RichTextImageBlock({
   src,
   alt,
+  width,
+  height,
   isSelected,
 }: RichTextImageBlockProps) {
   return (
@@ -25,6 +29,8 @@ export default function RichTextImageBlock({
       <img
         src={src}
         alt={alt}
+        width={width || undefined}
+        height={height || undefined}
         className="max-w-full rounded-md block"
         draggable={false}
       />

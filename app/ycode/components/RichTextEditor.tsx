@@ -275,6 +275,8 @@ const RichTextImageWithNodeView = RichTextImage.extend({
           <RichTextImageBlock
             src={currentNode.attrs.src}
             alt={currentNode.attrs.alt || ''}
+            width={currentNode.attrs.width}
+            height={currentNode.attrs.height}
             isSelected={isSelected}
           />,
         );

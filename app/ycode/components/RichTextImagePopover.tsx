@@ -5,9 +5,10 @@ import { Editor } from '@tiptap/core';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import SettingsPanel from './SettingsPanel';
 
 export interface RichTextImagePopoverProps {
@@ -26,41 +27,78 @@ export default function RichTextImagePopover({
   disabled = false,
 }: RichTextImagePopoverProps) {
   const [altText, setAltText] = useState('');
+  const [widthValue, setWidthValue] = useState('');
+  const [heightValue, setHeightValue] = useState('');
   const [savedPos, setSavedPos] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Refs for mutable values needed in the selectionUpdate listener
   const altTextRef = useRef(altText);
   const savedPosRef = useRef(savedPos);
+  const widthRef = useRef(widthValue);
+  const heightRef = useRef(heightValue);
   altTextRef.current = altText;
   savedPosRef.current = savedPos;
+  widthRef.current = widthValue;
+  heightRef.current = heightValue;
 
-  const saveAltAtPos = useCallback((pos: number, alt: string) => {
+  const saveAttrsAtPos = useCallback((pos: number, attrs: { alt: string; width: string; height: string }) => {
     const node = editor.state.doc.nodeAt(pos);
-    if (node?.type.name === 'richTextImage' && node.attrs.alt !== alt) {
-      const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+    if (node?.type.name === 'richTextImage') {
+      const newAttrs = {
         ...node.attrs,
-        alt,
-      });
-      editor.view.dispatch(tr);
+        alt: attrs.alt,
+        width: attrs.width || null,
+        height: attrs.height || null,
+      };
+      if (
+        node.attrs.alt !== newAttrs.alt ||
+        node.attrs.width !== newAttrs.width ||
+        node.attrs.height !== newAttrs.height
+      ) {
+        const tr = editor.state.tr.setNodeMarkup(pos, undefined, newAttrs);
+        editor.view.dispatch(tr);
+      }
     }
   }, [editor]);
 
-  const saveAlt = useCallback(() => {
+  const saveAttrs = useCallback(() => {
     if (savedPosRef.current !== null) {
-      saveAltAtPos(savedPosRef.current, altTextRef.current);
+      saveAttrsAtPos(savedPosRef.current, {
+        alt: altTextRef.current,
+        width: widthRef.current,
+        height: heightRef.current,
+      });
     }
-  }, [saveAltAtPos]);
+  }, [saveAttrsAtPos]);
 
   const handleOpenChange = useCallback((newOpen: boolean) => {
     if (newOpen && disabled) return;
-    if (!newOpen) saveAlt();
+    if (!newOpen) saveAttrs();
     onOpenChange(newOpen);
-  }, [onOpenChange, disabled, saveAlt]);
+  }, [onOpenChange, disabled, saveAttrs]);
 
-  // Sync alt text from the currently selected image whenever the popover opens.
-  // This covers both the initial open AND re-opens after clicking a different image
-  // (where the popover closes on outside-click, selection changes, then reopens).
+  const handleWidthChange = useCallback((value: string) => {
+    setWidthValue(value);
+    if (savedPosRef.current !== null) {
+      saveAttrsAtPos(savedPosRef.current, {
+        alt: altTextRef.current,
+        width: value,
+        height: heightRef.current,
+      });
+    }
+  }, [saveAttrsAtPos]);
+
+  const handleHeightChange = useCallback((value: string) => {
+    setHeightValue(value);
+    if (savedPosRef.current !== null) {
+      saveAttrsAtPos(savedPosRef.current, {
+        alt: altTextRef.current,
+        width: widthRef.current,
+        height: value,
+      });
+    }
+  }, [saveAttrsAtPos]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -68,6 +106,8 @@ export default function RichTextImagePopover({
     const node = editor.state.doc.nodeAt(selection.from);
     if (node?.type.name === 'richTextImage') {
       setAltText(node.attrs.alt || '');
+      setWidthValue(node.attrs.width || '');
+      setHeightValue(node.attrs.height || '');
       setSavedPos(selection.from);
     }
   }, [open, editor]);
@@ -111,6 +151,50 @@ export default function RichTextImagePopover({
                 onChange={(e) => setAltText(e.target.value)}
                 placeholder="Image description"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3">
+            <Label variant="muted">Size</Label>
+            <div className="col-span-2 *:w-full grid grid-cols-2 gap-2">
+              <InputGroup>
+                <InputGroupAddon>
+                  <div className="flex">
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Icon name="maxSize" className="size-3" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Width</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </InputGroupAddon>
+                <InputGroupInput
+                  stepper
+                  value={widthValue}
+                  onChange={(e) => handleWidthChange(e.target.value)}
+                />
+              </InputGroup>
+              <InputGroup>
+                <InputGroupAddon>
+                  <div className="flex">
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Icon name="maxSize" className="size-3 rotate-90" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Height</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </InputGroupAddon>
+                <InputGroupInput
+                  stepper
+                  value={heightValue}
+                  onChange={(e) => handleHeightChange(e.target.value)}
+                />
+              </InputGroup>
             </div>
           </div>
         </SettingsPanel>
