@@ -1,5 +1,6 @@
 import { redirect, permanentRedirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
+import { addCacheTag } from '@vercel/functions';
 import Link from 'next/link';
 import { fetchHomepage, fetchErrorPage, splitPageData, reassemblePageData, slimPageData } from '@/lib/page-fetcher';
 import type { PageData } from '@/lib/page-fetcher';
@@ -111,6 +112,11 @@ async function fetchCachedErrorPage(errorCode: 401) {
 }
 
 export default async function Home() {
+  // Tag this response for Vercel CDN cache invalidation. The publish endpoint
+  // purges this exact tag (route-/) so only the homepage cache entry is
+  // invalidated. No-ops outside Vercel.
+  await addCacheTag(['route-/', 'all-pages']);
+
   // Check for redirects targeting the homepage
   const redirects = await fetchCachedRedirects();
   if (redirects && Array.isArray(redirects)) {

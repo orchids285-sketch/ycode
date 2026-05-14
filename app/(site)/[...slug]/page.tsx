@@ -1,5 +1,6 @@
 import { notFound, redirect, permanentRedirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
+import { addCacheTag } from '@vercel/functions';
 import type { Metadata } from 'next';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { buildSlugPath } from '@/lib/page-utils';
@@ -257,6 +258,11 @@ export default async function Page({ params }: PageProps) {
 
   // Handle catch-all slug (join array into path)
   const slugPath = Array.isArray(slug) ? slug.join('/') : slug;
+
+  // Tag this response for Vercel CDN cache invalidation. The publish endpoint
+  // purges this exact tag (route-/<slug>) so only this URL's cache entry is
+  // invalidated. No-ops outside Vercel.
+  await addCacheTag([`route-/${slugPath}`, 'all-pages']);
 
   // Check for redirects before processing the page
   const currentPath = `/${slugPath}`;

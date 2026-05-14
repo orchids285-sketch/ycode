@@ -1,4 +1,5 @@
 import { revalidateTag, revalidatePath } from 'next/cache';
+import { invalidateByTag } from '@vercel/functions';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { buildSlugPath } from '@/lib/page-utils';
 import type { Page, PageFolder } from '@/types';
@@ -24,14 +25,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
  */
 
 /**
- * Invalidate cache for a specific page by route path
- * This will clear both the Next.js cache and trigger CDN purge on Vercel
+ * Invalidate cache for a specific page by route path.
+ *
+ * Calls both Next.js's revalidateTag (for the in-process data cache and any
+ * unstable_cache entries) AND Vercel's invalidateByTag (which talks directly
+ * to Vercel's CDN purge API for the explicit Vercel-Cache-Tag set on the
+ * page response). The Vercel call no-ops outside Vercel.
  *
  * @param routePath - Route path (without leading slash for tag, with for path)
  */
 export async function invalidatePage(routePath: string): Promise<boolean> {
+  const tag = `route-/${routePath}`;
   try {
-    revalidateTag(`route-/${routePath}`, { expire: 0 });
+    revalidateTag(tag, { expire: 0 });
+    await invalidateByTag(tag);
     return true;
   } catch (error) {
     console.error('❌ [Cache] Invalidation error:', error);
@@ -40,16 +47,25 @@ export async function invalidatePage(routePath: string): Promise<boolean> {
 }
 
 /**
- * Invalidate cache for multiple pages
+ * Invalidate cache for multiple pages.
+ * Uses Vercel's batched invalidateByTag (supports an array) for the CDN purge,
+ * and revalidateTag per-route for Next.js's data cache.
  *
  * @param routePaths - Array of route paths
  */
 export async function invalidatePages(routePaths: string[]): Promise<boolean> {
-  const results = await Promise.all(
-    routePaths.map((routePath) => invalidatePage(routePath))
-  );
-
-  return results.every((result) => result);
+  if (routePaths.length === 0) return true;
+  try {
+    const tags = routePaths.map((p) => `route-/${p}`);
+    for (const tag of tags) {
+      revalidateTag(tag, { expire: 0 });
+    }
+    await invalidateByTag(tags);
+    return true;
+  } catch (error) {
+    console.error('❌ [Cache] Invalidation error:', error);
+    return false;
+  }
 }
 
 /**
@@ -63,6 +79,10 @@ export async function clearAllCache(): Promise<void> {
     // on the root layout is what actually invalidates every page entry.
     revalidateTag('all-pages', { expire: 0 });
     revalidatePath('/', 'layout');
+
+    // Also purge Vercel's CDN by the 'all-pages' tag for any page responses
+    // that have it set as a Vercel-Cache-Tag. No-ops outside Vercel.
+    await invalidateByTag('all-pages');
   } catch (error) {
     console.error('❌ [Cache] Clear all error:', error);
     throw new Error('Failed to clear all cache');
