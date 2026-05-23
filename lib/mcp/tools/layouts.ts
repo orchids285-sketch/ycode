@@ -4,6 +4,7 @@ import type { Layer } from '@/types';
 import { getDraftLayers, upsertDraftLayers } from '@/lib/repositories/pageLayersRepository';
 import { getLayoutTemplate } from '@/lib/templates/blocks';
 import { findLayerById, insertLayer, canHaveChildren, generateId } from '@/lib/mcp/utils';
+import { broadcastLayersChanged } from '@/lib/mcp/broadcast';
 
 const LAYOUT_CATALOG = [
   { key: 'hero-001', category: 'Hero', description: 'Two-column hero with heading, text, and image' },
@@ -149,6 +150,7 @@ Use list_layouts to see available layouts.`,
       }
 
       await upsertDraftLayers(page_id, layers);
+      broadcastLayersChanged(page_id, layers).catch(() => {});
 
       return {
         content: [{
