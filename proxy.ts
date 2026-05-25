@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import type { NextRequest } from 'next/server';
 
 /**
@@ -154,6 +155,13 @@ export async function proxy(request: NextRequest) {
     return rewriteResponse;
   }
 
+  // Lazy daily rollover for pages with date presets (`$today`, etc.).
+  // Fires in the background — the visitor still gets the cached response
+  // immediately; subsequent visitors after the cache purge get the fresh render.
+  if (isPublicPage) {
+    waitUntil(maybeRolloverForPath(pathname));
+  }
+
   // Create response
   const response = NextResponse.next();
 
@@ -163,6 +171,71 @@ export async function proxy(request: NextRequest) {
   // Cache-Control for public pages is configured centrally via next.config.ts headers().
 
   return response;
+}
+
+/**
+ * Per-process caches to keep the visit-time rollover check off the database.
+ * Both TTLs refresh lazily so publishes / timezone changes propagate within
+ * a minute without forcing a query on every public page visit.
+ *
+ * `lastConfirmedDate` short-circuits subsequent visits within the same local
+ * day on this edge instance; other instances dedupe via the persisted
+ * marker read inside `maybeRolloverDatePresets`.
+ */
+const SETTING_CACHE_TTL_MS = 60_000;
+let cachedPaths: { set: Set<string>; expiresAt: number } | null = null;
+let cachedTimezone: { value: string; expiresAt: number } | null = null;
+let lastConfirmedDate: string | null = null;
+
+async function loadTimeDependentPaths(): Promise<Set<string>> {
+  const now = Date.now();
+  if (cachedPaths && cachedPaths.expiresAt > now) return cachedPaths.set;
+  const { getTimeDependentPagePaths } = await import('@/lib/services/datePresetsService');
+  const set = new Set(await getTimeDependentPagePaths());
+  cachedPaths = { set, expiresAt: now + SETTING_CACHE_TTL_MS };
+  return set;
+}
+
+async function loadSiteTimezone(): Promise<string> {
+  const now = Date.now();
+  if (cachedTimezone && cachedTimezone.expiresAt > now) return cachedTimezone.value;
+  const { getSettingByKey } = await import('@/lib/repositories/settingsRepository');
+  const value = ((await getSettingByKey('timezone')) as string | null) || 'UTC';
+  cachedTimezone = { value, expiresAt: now + SETTING_CACHE_TTL_MS };
+  return value;
+}
+
+/**
+ * Triggers the daily rollover if this is the first visit of a new local day
+ * to a time-dependent page. Intended to be fired via `waitUntil` so the
+ * visitor pays zero latency — the cache purge happens in the background;
+ * subsequent visitors get the rebuilt response.
+ *
+ * Wrapped in try/catch and intentionally swallowing errors: cache rollover
+ * is best-effort and must never break a page render.
+ */
+async function maybeRolloverForPath(pathname: string): Promise<void> {
+  try {
+    const paths = await loadTimeDependentPaths();
+    if (paths.size === 0) return;
+
+    const slugPath = pathname.replace(/^\/+/, '');
+    if (!paths.has(slugPath)) return;
+
+    const { getDateInTimezone, maybeRolloverDatePresets } = await import(
+      '@/lib/services/datePresetsService'
+    );
+    const today = getDateInTimezone(await loadSiteTimezone());
+
+    // In-process dedupe: skip the DB marker read once we've already confirmed
+    // today's rollover state on this instance.
+    if (lastConfirmedDate === today) return;
+
+    await maybeRolloverDatePresets();
+    lastConfirmedDate = today;
+  } catch {
+    // Best-effort — swallow so visitors are never affected by rollover errors.
+  }
 }
 
 export const config = {

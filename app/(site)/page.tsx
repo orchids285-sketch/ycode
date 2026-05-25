@@ -11,6 +11,8 @@ import { getSettingByKey } from '@/lib/repositories/settingsRepository';
 import { matchRedirect } from '@/lib/redirect-utils';
 import { parseAuthCookie, getPasswordProtection, fetchFoldersForAuth } from '@/lib/page-auth';
 import { getSiteBaseUrl } from '@/lib/url-utils';
+import { buildTimeDependentPagesTag } from '@/lib/services/cacheService';
+import { isTimeDependentBySlug } from '@/lib/services/timeDependentPageGuard';
 import type { Redirect as RedirectType } from '@/types';
 import type { Metadata } from 'next';
 
@@ -21,7 +23,7 @@ export const revalidate = false; // Cache indefinitely until publish invalidates
  * Fetch homepage data from database
  * Cached with tag-based revalidation (no time-based stale cache)
  */
-async function fetchPublishedHomepage() {
+async function fetchPublishedHomepage(isTimeDependent: boolean) {
   // Tags are both 'route-/' AND 'all-pages':
   // - route-/ lets selective invalidation purge just this page's data cache
   // - all-pages lets full invalidation (color variables, redirects, etc.)
@@ -30,7 +32,11 @@ async function fetchPublishedHomepage() {
   // invalidation of one route doesn't disturb others. (Next.js bug #63509
   // would apply if we used revalidateTag for selective on Vercel, but we
   // route exclusively through invalidateByTag here.)
+  // `time-dependent-pages` is added opt-in for pages with `$today`/preset-based
+  // visibility or filter rules so the proxy's lazy daily rollover can purge
+  // them on the first visit after local midnight.
   const tags = ['route-/', 'all-pages'];
+  if (isTimeDependent) tags.push(buildTimeDependentPagesTag(null));
   const opts = { tags, revalidate: false as const };
 
   const [core, layers] = await Promise.all([
@@ -105,6 +111,22 @@ async function fetchCachedFoldersForAuth() {
   }
 }
 
+/**
+ * Cached homepage core fetch — used by the time-dependence guard to
+ * resolve the homepage's page ID without pulling layers. Returns `{ page }`
+ * shape so it composes with the shared `isTimeDependentBySlug` helper.
+ */
+async function fetchHomepageCoreForGuard(): Promise<{ page: { id: string } } | null> {
+  return unstable_cache(
+    async () => {
+      const data = await fetchHomepage(true);
+      return data ? splitPageData(data as PageData).core : null;
+    },
+    ['core-/'],
+    { tags: ['route-/', 'all-pages'], revalidate: false },
+  )();
+}
+
 async function fetchCachedErrorPage(errorCode: 401) {
   return unstable_cache(
     async () => {
@@ -120,7 +142,14 @@ export default async function Home() {
   // Tag this response for Vercel CDN cache invalidation. The publish endpoint
   // purges this exact tag (route-/) so only the homepage cache entry is
   // invalidated. No-ops outside Vercel.
-  await addCacheTag(['route-/', 'all-pages']);
+  //
+  // Pages whose render evaluates a date preset (`$today`, etc.) additionally
+  // carry the `time-dependent-pages` tag so the proxy's lazy daily rollover
+  // can purge them on the first visit after local midnight.
+  const isTimeDependent = await isTimeDependentBySlug(fetchHomepageCoreForGuard);
+  const responseTags = ['route-/', 'all-pages'];
+  if (isTimeDependent) responseTags.push(buildTimeDependentPagesTag(null));
+  await addCacheTag(responseTags);
 
   // Check for redirects targeting the homepage
   const redirects = await fetchCachedRedirects();
@@ -136,7 +165,7 @@ export default async function Home() {
   }
 
   // Cache-first homepage path; pagination is served through internal dynamic routes.
-  const data = await fetchPublishedHomepage();
+  const data = await fetchPublishedHomepage(isTimeDependent);
 
   // If no published homepage exists, show default landing page
   if (!data || !data.pageLayers) {
@@ -239,9 +268,11 @@ export default async function Home() {
 
 // Generate metadata
 export async function generateMetadata(): Promise<Metadata> {
-  // Fetch page and global settings in parallel
+  // Keep tag set consistent across metadata + render so we don't create two
+  // cache entries with diverging tags for the same underlying fetch.
+  const isTimeDependent = await isTimeDependentBySlug(fetchHomepageCoreForGuard);
   const [data, globalSettings] = await Promise.all([
-    fetchPublishedHomepage(),
+    fetchPublishedHomepage(isTimeDependent),
     fetchCachedGlobalSettings(),
   ]);
 

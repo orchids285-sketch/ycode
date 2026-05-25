@@ -94,6 +94,42 @@ export async function invalidatePages(routePaths: string[]): Promise<boolean> {
 }
 
 /**
+ * Tag shared by every cache entry whose render evaluates a date preset
+ * (`$today`, `$this_week`, ...). Purged once per local day on the first
+ * visit after midnight so cached "today" buckets actually roll over.
+ *
+ * `tenantId` is accepted for parity with the cloud overlay (where the tag
+ * must be tenant-scoped so one tenant's midnight rollover never nukes
+ * another tenant's cache on the same deployment). Ignored in opensource.
+ */
+export function buildTimeDependentPagesTag(tenantId: string | null): string {
+  return tenantId
+    ? `t-${tenantId}-time-dependent-pages`
+    : 'time-dependent-pages';
+}
+
+/**
+ * Invalidate every cache entry tagged as time-dependent. One tag = one
+ * purge call, regardless of how many pages share it. Same precision rules
+ * as `invalidatePage` apply (Vercel: invalidateByTag; self-hosted:
+ * revalidateTag).
+ */
+export async function invalidateTimeDependentPages(): Promise<boolean> {
+  try {
+    const tag = buildTimeDependentPagesTag(null);
+    if (process.env.VERCEL === '1') {
+      await invalidateByTag(tag);
+    } else {
+      revalidateTag(tag, { expire: 0 });
+    }
+    return true;
+  } catch (error) {
+    console.error('❌ [Cache] Time-dependent invalidation error:', error);
+    return false;
+  }
+}
+
+/**
  * Clear all cache (full site invalidation)
  * Invalidates the root layout which cascades to all pages
  */

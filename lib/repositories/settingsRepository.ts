@@ -34,10 +34,13 @@ export async function getAllSettings(): Promise<Setting[]> {
  * Get a setting by key
  *
  * @param key - The setting key
+ * @param tenantId - Optional tenant override (used by cloud overlay for
+ *   tenant-scoped reads from inside `unstable_cache` callbacks that can't
+ *   call `headers()`). Ignored in opensource.
  * @returns Promise resolving to the setting value or null if not found
  */
-export async function getSettingByKey(key: string): Promise<any | null> {
-  const client = await getSupabaseAdmin();
+export async function getSettingByKey(key: string, tenantId?: string): Promise<any | null> {
+  const client = await getSupabaseAdmin(tenantId);
   if (!client) {
     throw new Error('Failed to initialize Supabase client');
   }
@@ -97,10 +100,12 @@ export async function getSettingsByKeys(keys: string[]): Promise<Record<string, 
  *
  * @param key - The setting key
  * @param value - The value to store
+ * @param tenantId - Optional tenant override (used by cloud overlay for
+ *   tenant-scoped writes from outside a request context). Ignored in opensource.
  * @returns Promise resolving to the created/updated setting
  */
-export async function setSetting(key: string, value: any): Promise<Setting> {
-  const client = await getSupabaseAdmin();
+export async function setSetting(key: string, value: any, tenantId?: string): Promise<Setting> {
+  const client = await getSupabaseAdmin(tenantId);
   if (!client) {
     throw new Error('Failed to initialize Supabase client');
   }
