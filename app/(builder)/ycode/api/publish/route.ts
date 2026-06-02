@@ -19,7 +19,7 @@ import { getAllDraftPages, hardDeleteSoftDeletedPages, backfillMissingPageHashes
 import { publishComponents, getUnpublishedComponents, hardDeleteSoftDeletedComponents } from '@/lib/repositories/componentRepository';
 import { publishLayerStyles, getUnpublishedLayerStyles, hardDeleteSoftDeletedLayerStyles } from '@/lib/repositories/layerStyleRepository';
 import { getAllCollections } from '@/lib/repositories/collectionRepository';
-import { getItemsByCollectionId } from '@/lib/repositories/collectionItemRepository';
+import { getAllItemsByCollectionId } from '@/lib/repositories/collectionItemRepository';
 import { publishAssets, getUnpublishedAssets, hardDeleteSoftDeletedAssets } from '@/lib/repositories/assetRepository';
 import { publishAssetFolders, getUnpublishedAssetFolders, hardDeleteSoftDeletedAssetFolders } from '@/lib/repositories/assetFolderRepository';
 import { publishFonts } from '@/lib/repositories/fontRepository';
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
 
         if (collectionIds && collectionIds.length > 0) {
           for (const collectionId of collectionIds) {
-            const { items } = await getItemsByCollectionId(collectionId, false);
+            const items = await getAllItemsByCollectionId(collectionId, false);
             collectionPublishes.push({
               collectionId,
               itemIds: items.map((item: any) => item.id),
@@ -250,6 +250,9 @@ export async function POST(request: NextRequest) {
               collectionId: collectionPublish.collectionId,
               itemIds: collectionPublish.itemIds,
             });
+            if (!publishResult.success) {
+              console.error(`[Publish] collection ${collectionPublish.collectionId} FAILED (${collectionPublish.itemIds.length} items):`, publishResult.errors);
+            }
             const p = publishResult.published;
             const changed = (p?.itemsCount || 0)
               + (p?.valuesCount || 0)
@@ -284,11 +287,14 @@ export async function POST(request: NextRequest) {
         const allCollections = await getAllCollections({ is_published: false });
 
         for (const collection of allCollections) {
-          const { items } = await getItemsByCollectionId(collection.id, false);
+          const items = await getAllItemsByCollectionId(collection.id, false);
           const publishResult = await publishCollectionWithItems({
             collectionId: collection.id,
             itemIds: items.map((item: any) => item.id),
           });
+          if (!publishResult.success) {
+            console.error(`[Publish] collection ${collection.id} (${collection.name}) FAILED (${items.length} items):`, publishResult.errors);
+          }
           const p = publishResult.published;
           const changedItems = p?.itemsCount || 0;
           const changedValues = p?.valuesCount || 0;
