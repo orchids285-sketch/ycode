@@ -56,63 +56,6 @@ export function hasStyle(layer: Layer): boolean {
 }
 
 /**
- * Check if layer has style overrides
- * Returns true if layer has a valid style AND has local modifications that differ from the style
- */
-export function hasStyleOverrides(layer: Layer, style?: LayerStyle): boolean {
-  const hasValidStyleId = getStyleIds(layer).length > 0;
-
-  if (!hasValidStyleId || !layer.styleOverrides) {
-    return false;
-  }
-
-  // If no style provided, we can only check if styleOverrides exists
-  // This is a simple check used when we don't have the style loaded
-  if (!style) {
-    return true;
-  }
-
-  // Compare current values with style values to see if they actually differ
-  const classesMatch = layer.classes === style.classes;
-  const designMatch = JSON.stringify(layer.design || {}) === JSON.stringify(style.design || {});
-
-  // Has overrides if either classes or design differ from the style
-  return !classesMatch || !designMatch;
-}
-
-/**
- * Reset layer to original style
- * Removes overrides and reapplies style's current values
- */
-export function resetLayerToStyle(layer: Layer, style: LayerStyle): Layer {
-  if (!getStyleIds(layer).includes(style.id)) {
-    return layer;
-  }
-
-  // Single style: restore its values exactly (matches legacy behavior).
-  return {
-    ...layer,
-    classes: style.classes,
-    design: style.design,
-    styleOverrides: undefined,
-  };
-}
-
-/**
- * Reset a layer's overrides by re-resolving its full style stack (no overrides).
- * Use when the layer may carry multiple styles, where a single style's values
- * are not the whole picture.
- */
-export function resetLayerOverrides(
-  layer: Layer,
-  stylesById: Map<string, LayerStyle>,
-): Layer {
-  const next: Layer = { ...layer, styleOverrides: undefined };
-  const classes = resolveLayerClasses(next, stylesById);
-  return { ...next, classes, design: buildDesign(classes) };
-}
-
-/**
  * Update a styled layer
  * Tracks changes as overrides when a style is applied
  * If no style is applied, updates normally

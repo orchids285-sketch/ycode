@@ -7,6 +7,7 @@ import {
   chipClasses,
   hasChipOverride,
 } from '@/lib/layer-style-resolve';
+import { detachStyleFromLayers } from '@/lib/layer-style-utils';
 
 function style(id: string, classes: string): LayerStyle {
   return {
@@ -114,6 +115,50 @@ test('resolveLayerClasses: top chip override beats lower styles', () => {
   assert.ok(result.includes('text-green-500'), 'override on highest chip wins');
   assert.ok(!result.includes('text-white'), 'overridden combo color dropped');
   assert.ok(!result.includes('text-black'), 'base color dropped');
+});
+
+test('detachStyleFromLayers (delete): combo re-resolves remaining, dropping the deleted style', () => {
+  // Shared client+server delete path. Deleting one style of a combo keeps the
+  // remaining stack and re-flattens — the deleted style's contribution is gone.
+  const styles = new Map([
+    ['base', style('base', 'text-black p-2')],
+    ['combo', style('combo', 'bg-blue-500')],
+  ]);
+  const layers: Layer[] = [{
+    id: 'l1', name: 'div',
+    classes: 'text-black p-2 bg-blue-500',
+    styleIds: ['base', 'combo'],
+  }];
+  const [out] = detachStyleFromLayers(layers, 'combo', styles);
+  assert.deepEqual(out.styleIds, ['base'], 'deleted style removed from stack');
+  const cls = (out.classes as string).split(' ');
+  assert.ok(cls.includes('text-black') && cls.includes('p-2'), 'remaining style kept');
+  assert.ok(!cls.includes('bg-blue-500'), 'deleted style contribution dropped');
+});
+
+test('detachStyleFromLayers (delete): only-style keeps the rendered look as plain classes', () => {
+  const styles = new Map([['only', style('only', 'flex gap-2')]]);
+  const layers: Layer[] = [{
+    id: 'l1', name: 'div', classes: 'flex gap-2', styleIds: ['only'],
+  }];
+  const [out] = detachStyleFromLayers(layers, 'only', styles);
+  assert.equal(out.styleIds, undefined, 'no style links remain');
+  assert.equal(out.styleId, undefined);
+  assert.equal(out.classes, 'flex gap-2', 'rendered look kept as plain classes');
+});
+
+test('detachStyleFromLayers (delete): prunes the deleted chip override, keeps others', () => {
+  const styles = new Map([
+    ['base', style('base', 'text-black')],
+    ['combo', style('combo', 'text-white')],
+  ]);
+  const layers: Layer[] = [{
+    id: 'l1', name: 'div', classes: '',
+    styleIds: ['base', 'combo'],
+    styleOverridesByStyle: { base: { classes: 'text-red-500' }, combo: { classes: 'text-green-500' } },
+  }];
+  const [out] = detachStyleFromLayers(layers, 'combo', styles);
+  assert.deepEqual(out.styleOverridesByStyle, { base: { classes: 'text-red-500' } }, 'deleted chip override pruned, base kept');
 });
 
 test('findAffectedPages invariant: styleIds are discoverable in serialized layers', () => {

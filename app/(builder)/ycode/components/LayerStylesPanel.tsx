@@ -58,7 +58,7 @@ import {
   detachStyleFromLayer,
   getStyleIds,
 } from '@/lib/layer-style-utils';
-import { resolveLayerClasses, resolveLayerDesign, chipClasses } from '@/lib/layer-style-resolve';
+import { resolveLayerClasses, resolveLayerDesign, chipClasses, mergeClassStack } from '@/lib/layer-style-resolve';
 import { buildDesign } from '@/lib/import/design';
 import { detachStyleAcrossStores, updateStyleAcrossStores } from '@/lib/layer-style-store-utils';
 import { getStyleGroup, getTextStyleGroup, isStyleGroupCompatible } from '@/lib/layer-style-groups';
@@ -398,12 +398,13 @@ export default function LayerStylesPanel({
    *
    * Unlike the chip's X (which removes the style AND its classes), Detach keeps
    * the layer looking identical. The active chip is dropped from the stack and
-   * its *winning* class contribution is baked into the layer's top-level local
-   * override (`styleOverrides`, highest priority). Because the resolver already
-   * decided the per-property winners, that delta is exactly what the detached
-   * style was contributing — promoting it to the top can't change the result,
-   * so a middle-of-stack detach stays visually faithful. Detaching the only
-   * chip flattens the layer to plain, style-less classes.
+   * its *winning* class contribution is folded into the TOP remaining chip's
+   * per-chip override (`styleOverridesByStyle`). We use a per-chip override
+   * (not the legacy single `styleOverrides` blob) so the layer is NOT frozen:
+   * the other chips keep tracking their shared styles. Because the resolver
+   * already decided the per-property winners, the detached delta never
+   * conflicts with the remaining stack, so a middle-of-stack detach stays
+   * visually faithful. Detaching the only chip flattens to plain classes.
    */
   const handleDetachStyle = useCallback(() => {
     if (!layer) return;
@@ -433,29 +434,35 @@ export default function LayerStylesPanel({
 
     // Keep only the remaining chips' per-chip overrides.
     const prevMap = layer.styleOverridesByStyle ?? {};
-    const prunedMap: NonNullable<Layer['styleOverridesByStyle']> = {};
-    for (const id of remaining) if (prevMap[id]) prunedMap[id] = prevMap[id];
-    const hasMap = Object.keys(prunedMap).length > 0;
+    const map: NonNullable<Layer['styleOverridesByStyle']> = {};
+    for (const id of remaining) if (prevMap[id]) map[id] = prevMap[id];
 
     // The detached style's surviving contribution = current resolved classes
-    // minus what the remaining stack alone resolves to.
+    // minus what the remaining stack alone resolves to. Fold it into the top
+    // chip's override so it renders at the highest priority without freezing
+    // the layer against style updates.
     const remainingResolved = resolveLayerClasses(
-      { styleIds: remaining, styleOverridesByStyle: hasMap ? prunedMap : undefined },
+      { styleIds: remaining, styleOverridesByStyle: Object.keys(map).length ? map : undefined },
       stylesById,
     );
     const remainingSet = new Set(remainingResolved.split(/\s+/).filter(Boolean));
-    const detachedClasses = fullResolved
-      .split(/\s+/)
-      .filter((c) => c && !remainingSet.has(c))
-      .join(' ');
+    const detached = fullResolved.split(/\s+/).filter((c) => c && !remainingSet.has(c));
 
-    const nextOverrides = detachedClasses ? { classes: detachedClasses } : undefined;
+    if (detached.length > 0) {
+      const topId = remaining[remaining.length - 1];
+      const topCurrent = chipClasses({ styleOverridesByStyle: map }, topId, stylesById)
+        .split(/\s+/)
+        .filter(Boolean);
+      const mergedTop = mergeClassStack([...topCurrent, ...detached]).join(' ');
+      map[topId] = { classes: mergedTop, design: buildDesign(mergedTop) };
+    }
+    const hasMap = Object.keys(map).length > 0;
 
     onLayerUpdate(layer.id, {
       styleIds: remaining,
       styleId: remaining[0],
-      styleOverridesByStyle: hasMap ? prunedMap : undefined,
-      styleOverrides: nextOverrides,
+      styleOverridesByStyle: hasMap ? map : undefined,
+      styleOverrides: undefined,
       classes: fullResolved,
       design: buildDesign(fullResolved),
     });

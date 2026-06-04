@@ -25,6 +25,8 @@ interface ResolvedStyling {
   /** Ordered applied styles, low -> high priority (base class first, combos after). */
   styleIds?: string[];
   styleOverrides?: Layer['styleOverrides'];
+  /** Per-chip overrides (e.g. one-off classes folded onto the top chip). */
+  styleOverridesByStyle?: Layer['styleOverridesByStyle'];
 }
 
 /** Build a Tiptap rich-text doc from plain text (newlines become hard breaks). */
@@ -116,6 +118,8 @@ export class ImportConverter {
 
     const styleIds: string[] = [];
     const stackClasses: string[] = [];
+    let topStyleId: string | undefined;
+    let topStyleClasses = '';
 
     for (const { ref, foldsFramework } of orderedNamed) {
       const classes = foldsFramework && framework.length > 0
@@ -134,6 +138,8 @@ export class ImportConverter {
       if (style) {
         styleIds.push(style.id);
         stackClasses.push(...style.classes.split(/\s+/).filter(Boolean));
+        topStyleId = style.id;
+        topStyleClasses = style.classes;
       } else {
         // Empty/failed (e.g. a declaration-less combo): inline its classes so
         // nothing is lost, but don't create a style reference for it.
@@ -143,11 +149,25 @@ export class ImportConverter {
 
     if (styleIds.length > 0) {
       const merged = mergeClassStack(stackClasses);
-      if (extra.length > 0) {
-        // One-off classes override the stack, so they merge in last.
+      if (extra.length > 0 && topStyleId) {
+        // One-off classes override the stack, so they merge in last. Store them
+        // as a per-chip override on the TOP chip (not the legacy single-blob
+        // `styleOverrides`, which would freeze the layer against style updates
+        // and get dropped on the first chip edit). The override replaces the top
+        // chip's classes for this layer with the chip's own classes + the extras.
         const full = mergeClassStack([...merged, ...extra]).join(' ');
-        const design = buildDesign(full);
-        return { classes: full, design, styleIds, styleOverrides: { classes: full, design } };
+        const overrideClasses = mergeClassStack([
+          ...topStyleClasses.split(/\s+/).filter(Boolean),
+          ...extra,
+        ]).join(' ');
+        return {
+          classes: full,
+          design: buildDesign(full),
+          styleIds,
+          styleOverridesByStyle: {
+            [topStyleId]: { classes: overrideClasses, design: buildDesign(overrideClasses) },
+          },
+        };
       }
       const classesStr = merged.join(' ').trim();
       return { classes: classesStr, design: buildDesign(classesStr), styleIds };
@@ -172,6 +192,7 @@ export class ImportConverter {
       layer.styleId = styling.styleIds[0]; // legacy mirror during migration
     }
     if (styling.styleOverrides) layer.styleOverrides = styling.styleOverrides;
+    if (styling.styleOverridesByStyle) layer.styleOverridesByStyle = styling.styleOverridesByStyle;
   }
 
   private async convertBox(node: ImportNode, isLink: boolean): Promise<Layer> {

@@ -12,7 +12,7 @@ import {
   generatePageLayersHash,
   generateComponentContentHash,
 } from '../hash-utils';
-import { updateLayersWithStyle, getStyleIds } from '@/lib/layer-style-utils';
+import { updateLayersWithStyle, detachStyleFromLayers, getStyleIds } from '@/lib/layer-style-utils';
 
 /**
  * Input data for creating a new layer style
@@ -496,43 +496,6 @@ function layersContainStyle(layers: Layer[], styleId: string): boolean {
 }
 
 /**
- * Helper function to recursively remove a style from a layer's stack. Keeps the
- * already-flattened `classes` (the published look) and only drops the link,
- * mirroring the client-side detach for a deleted style.
- */
-function detachStyleFromLayersRecursive(layers: Layer[], styleId: string): Layer[] {
-  return layers.map(layer => {
-    // Create a clean copy of the layer
-    const cleanLayer = { ...layer };
-
-    const ids = getStyleIds(cleanLayer);
-    if (ids.includes(styleId)) {
-      const remaining = ids.filter(id => id !== styleId);
-      if (remaining.length === 0) {
-        delete cleanLayer.styleId;
-        delete cleanLayer.styleIds;
-        delete cleanLayer.styleOverrides;
-        delete cleanLayer.styleOverridesByStyle;
-      } else {
-        cleanLayer.styleIds = remaining;
-        cleanLayer.styleId = remaining[0];
-        if (cleanLayer.styleOverridesByStyle?.[styleId]) {
-          const { [styleId]: _removed, ...rest } = cleanLayer.styleOverridesByStyle;
-          cleanLayer.styleOverridesByStyle = Object.keys(rest).length ? rest : undefined;
-        }
-      }
-    }
-
-    // Recursively process children
-    if (cleanLayer.children && cleanLayer.children.length > 0) {
-      cleanLayer.children = detachStyleFromLayersRecursive(cleanLayer.children, styleId);
-    }
-
-    return cleanLayer;
-  });
-}
-
-/**
  * Find all entities (pages and components) using a layer style
  * Returns detailed info including previous and new layers for undo/redo
  */
@@ -543,6 +506,17 @@ export async function findEntitiesUsingLayerStyle(styleId: string): Promise<Laye
   }
 
   const affectedEntities: LayerStyleAffectedEntity[] = [];
+
+  // Snapshot all draft styles so combo stacks can be re-flattened the same way
+  // the client does on detach — keeping client and server perfectly in sync.
+  const { data: allDraftStyles } = await client
+    .from('layer_styles')
+    .select('*')
+    .eq('is_published', false)
+    .is('deleted_at', null);
+  const stylesById = new Map<string, LayerStyle>(
+    (allDraftStyles || []).map((s) => [s.id, s as LayerStyle])
+  );
 
   // Find affected page_layers
   const { data: pageLayersRecords, error: pageError } = await client
@@ -576,7 +550,7 @@ export async function findEntitiesUsingLayerStyle(styleId: string): Promise<Laye
 
     for (const record of pageLayersRecords || []) {
       if (layersContainStyle(record.layers || [], styleId)) {
-        const newLayers = detachStyleFromLayersRecursive(record.layers || [], styleId);
+        const newLayers = detachStyleFromLayers(record.layers || [], styleId, stylesById);
         affectedEntities.push({
           type: 'page',
           id: record.id,
@@ -608,12 +582,12 @@ export async function findEntitiesUsingLayerStyle(styleId: string): Promise<Laye
     const hasStyleInVariants = Array.isArray(variants) && variants.some(v => layersContainStyle(v.layers ?? [], styleId));
 
     if (hasStyleInPrimary || hasStyleInVariants) {
-      const newLayers = detachStyleFromLayersRecursive(primaryLayers, styleId);
+      const newLayers = detachStyleFromLayers(primaryLayers, styleId, stylesById);
       let newVariants: ComponentVariant[] | undefined;
       if (Array.isArray(variants) && variants.length > 0) {
         newVariants = variants.map((v, i) => ({
           ...v,
-          layers: i === 0 ? newLayers : detachStyleFromLayersRecursive(v.layers ?? [], styleId),
+          layers: i === 0 ? newLayers : detachStyleFromLayers(v.layers ?? [], styleId, stylesById),
         }));
       }
       affectedEntities.push({
