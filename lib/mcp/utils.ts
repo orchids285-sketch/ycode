@@ -759,6 +759,11 @@ export const ELEMENT_TEMPLATES: Record<string, ElementTemplateEntry> = {
     description: 'Lightbox overlay for viewing images in a fullscreen gallery with navigation, thumbnails, and zoom.',
     useBlocksTemplate: true,
   },
+  siteSearch: {
+    name: 'Site search',
+    description: 'Site search element with a Quick Menu (⌘K command palette) that runs client-side fuzzy search across published pages and CMS content.',
+    useBlocksTemplate: true,
+  },
   localeSelector: {
     name: 'Locale Selector',
     description: 'Language switcher dropdown for multi-language sites.',

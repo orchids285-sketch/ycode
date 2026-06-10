@@ -48,6 +48,7 @@ import FilterSettings from './FilterSettings';
 import AlertSettings from './AlertSettings';
 import HTMLEmbedSettings from './HTMLEmbedSettings';
 import MapSettings from './MapSettings';
+import SiteSearchSettings from './SiteSearchSettings';
 import SliderSettings from './SliderSettings';
 import LightboxSettings from './LightboxSettings';
 import InputSettings from './InputSettings';
@@ -2875,6 +2876,12 @@ const RightSidebar = React.memo(function RightSidebar({
             <FilterSettings
               layer={selectedLayer}
               onLayerUpdate={handleLayerUpdate}
+            />
+
+            <SiteSearchSettings
+              layer={selectedLayer}
+              onLayerUpdate={handleLayerUpdate}
+              collections={collections}
             />
 
             <AlertSettings

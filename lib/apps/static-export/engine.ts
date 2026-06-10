@@ -24,9 +24,11 @@ import { getSupabaseAdmin } from '@/lib/supabase-server'
 
 import type { Locale, Page, PageFolder } from '@/types'
 
+import { buildSearchIndex } from '@/lib/search/build-search-index'
+
 import { collectPublicAssets, collectSupabaseAssets } from './asset-bundler'
 import { getExportConfig, saveLastExportJob } from './config'
-import { buildDocument, SWIPER_CSS_PATH } from './document'
+import { buildDocument, FUSE_JS_PATH, SWIPER_CSS_PATH } from './document'
 import {
   buildTranslationsMap,
   resolvePages,
@@ -49,7 +51,7 @@ import { createS3Writer } from './writers/s3'
  *
  * Handles both bundled asset paths and internal page links.
  */
-const ABSOLUTE_ASSET_RE = /(?<=["'\s,=])\/(?=a\/[A-Za-z0-9]{22}\/|ycode\/layouts\/assets\/|swiper-minimal\.css)/g
+const ABSOLUTE_ASSET_RE = /(?<=["'\s,=])\/(?=a\/[A-Za-z0-9]{22}\/|ycode\/layouts\/assets\/|swiper-minimal\.css|fuse\.min\.js)/g
 const INTERNAL_LINK_RE = /href="\/([^"]*?)"/g
 
 function relativizePaths(html: string, outputKey: string): string {
@@ -199,12 +201,28 @@ export async function exportSite(presetJobId?: string): Promise<ExportJob> {
     const outputs: OutputFile[] = []
     const referencedAssetPaths = new Set<string>()
 
+    // The search index is expensive (resolves every route), so build it lazily
+    // and memoize per locale — only when a page actually uses site search.
+    const searchIndexCache = new Map<string, string>()
+    const getSearchIndexJson = async (localeCode?: string): Promise<string> => {
+      const key = localeCode ?? '__default__'
+      const cached = searchIndexCache.get(key)
+      if (cached !== undefined) return cached
+      const docs = await buildSearchIndex({ localeCode })
+      const json = JSON.stringify(docs)
+      searchIndexCache.set(key, json)
+      return json
+    }
+
     const renderPage = async (page: Page, ctx: LocaleContext): Promise<void> => {
       let yieldedAny = false
       const ogImageUrl = await resolvePageOgImage(page)
       try {
         for await (const resolved of resolvePages(page, folders, pages, ctx)) {
           yieldedAny = true
+          const searchIndexJson = resolved.hasSearch
+            ? await getSearchIndexJson(ctx.locale && !ctx.locale.is_default ? ctx.locale.code : undefined)
+            : null
           const html = buildDocument({
             page: resolved.page,
             bodyHtml: resolved.bodyHtml,
@@ -215,6 +233,7 @@ export async function exportSite(presetJobId?: string): Promise<ExportJob> {
             colorVariablesCss: colorVariablesCss ?? null,
             fontsCss: fontsCss || null,
             includeSwiper: resolved.hasSlider,
+            searchIndexJson,
             interactions: resolved.interactions,
             globalCustomCodeHead: globalCustomCodeHead ?? null,
             globalCustomCodeBody: globalCustomCodeBody ?? null,
@@ -233,6 +252,11 @@ export async function exportSite(presetJobId?: string): Promise<ExportJob> {
           // from /public — the export's <link> in <head> points at this path.
           if (resolved.hasSlider) {
             referencedAssetPaths.add(SWIPER_CSS_PATH)
+          }
+
+          // Bundle the self-hosted Fuse.js when the page uses site search.
+          if (resolved.hasSearch) {
+            referencedAssetPaths.add(FUSE_JS_PATH)
           }
 
           const finalHtml = relativizePaths(html, resolved.outputKey)

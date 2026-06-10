@@ -806,6 +806,17 @@ export async function POST(request: NextRequest) {
       // Silently handle - non-fatal
     }
 
+    // Refresh the site search index: bust the indefinitely-cached data layer
+    // and the route response so search reflects the freshly published content.
+    try {
+      const { revalidateTag, revalidatePath } = await import('next/cache');
+      revalidateTag('search-index', { expire: 0 });
+      revalidatePath('/search-index.json');
+    } catch {
+      // Non-fatal — the data cache is also keyed on published_at, so it
+      // rebuilds on the next request regardless.
+    }
+
     // Dispatch the site.published webhook event. The dispatcher is the only
     // path that delivers to user-configured webhooks for this event type
     // (advertised in the Integrations → Webhooks UI), so without this call

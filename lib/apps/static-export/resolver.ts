@@ -39,6 +39,8 @@ export interface ResolvedPage {
   lang: string
   outputKey: string
   hasSlider: boolean
+  /** Whether the page contains a Site Search element (drives Fuse.js + index embedding). */
+  hasSearch: boolean
   interactions: ExportedInteraction[]
   /**
    * Page-level custom code from `page.settings.custom_code.{head,body}`.
@@ -201,6 +203,7 @@ function renderResolved(
     lang: ctx.locale?.code ?? 'en',
     outputKey,
     hasSlider: layerTreeContains(layers, 'slider'),
+    hasSearch: layerTreeContains(layers, 'siteSearch'),
     interactions: collectInteractions(layers),
     pageCustomCodeHead: pageCustomCodeHead || null,
     pageCustomCodeBody: pageCustomCodeBody || null,

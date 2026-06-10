@@ -236,6 +236,15 @@ export interface SliderSettings {
   duration: string; // Transition duration in seconds
 }
 
+/** Settings for the Site Search (Quick Menu) element. */
+export interface SiteSearchSettings {
+  scope: 'site' | 'paths' | 'collection'; // What content to search across
+  paths?: string[]; // URL path prefixes to restrict results to (scope='paths')
+  collectionId?: string; // Collection to restrict results to (scope='collection')
+  placeholder?: string; // Search input placeholder text
+  shortcut?: boolean; // Enable the Cmd+K / Ctrl+K keyboard shortcut
+}
+
 export interface LayerSettings {
   id?: string; // Custom element ID
   tag?: string; // HTML tag override (e.g., 'h1', 'h2', etc.)
@@ -251,6 +260,7 @@ export interface LayerSettings {
   lightbox?: LightboxSettings; // Lightbox-specific settings (only for lightbox layers)
   form?: FormSettings; // Form-specific settings (only for form layers)
   filterOnChange?: boolean; // For filter layers: trigger filtering on every input change (debounced)
+  search?: SiteSearchSettings; // Site search-specific settings (only for siteSearch layers)
   optionsSource?: {
     collectionId: string;
     defaultItemId?: string; // item ID to pre-select as default (select elements)

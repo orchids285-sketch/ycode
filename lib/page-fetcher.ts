@@ -449,6 +449,7 @@ async function fetchPageByPathInternal(
     // Use translated slug matching if translations are available
     let matchingPage = pages.find((page: Page) => {
       if (page.is_dynamic) return false; // Skip dynamic pages for exact match
+      if (page.error_page != null) return false; // Error pages are served via fetchErrorPage, never matched by path
 
       // If we have translations, match using translated slugs
       if (translations) {
@@ -4327,6 +4328,12 @@ export function layerToHtml(
   if (layer.name === 'slider' && layer.settings?.slider) {
     attrs.push(`data-slider-id="${escapeHtml(layer.id)}"`);
     attrs.push(`data-slider-settings="${escapeHtml(JSON.stringify(layer.settings.slider))}"`);
+  }
+
+  // Add site search settings as data attributes (used by SEARCH_BOOT_SCRIPT)
+  if (layer.name === 'siteSearch') {
+    attrs.push(`data-search-id="${escapeHtml(layer.id)}"`);
+    attrs.push(`data-search-settings="${escapeHtml(JSON.stringify(layer.settings?.search || { scope: 'site' }))}"`);
   }
 
   // Add lightbox data attributes for the lightbox layer

@@ -516,6 +516,150 @@ const VISIBILITY_BOOT_SCRIPT = `
 `.trim()
 
 // =============================================================================
+// Site search bundling
+// =============================================================================
+
+// Self-hosted Fuse.js (browser-global wrapper) bundled from /public so the
+// export's `<script src>` resolves offline — same model as Swiper CSS.
+export const FUSE_JS_PATH = '/fuse.min.js'
+
+/**
+ * Vanilla site-search runtime for the static export. Mirrors the live site's
+ * React `SiteSearch` component: opens a Quick Menu overlay on trigger click or
+ * ⌘K / Ctrl+K, runs Fuse.js over the inlined index, and renders ranked
+ * results. No React — reads `#ycode-search-index` and the global `Fuse`.
+ */
+const SEARCH_BOOT_SCRIPT = `
+(function () {
+  if (typeof window === 'undefined') return;
+  var indexEl = document.getElementById('ycode-search-index');
+  if (!indexEl || typeof window.Fuse !== 'function') return;
+  var documents;
+  try { documents = JSON.parse(indexEl.textContent || '[]'); } catch (_) { return; }
+
+  function applyScope(docs, s) {
+    if (s.scope === 'paths' && s.paths && s.paths.length) {
+      var prefixes = s.paths.map(function (p) { return p.charAt(0) === '/' ? p : '/' + p; });
+      return docs.filter(function (d) {
+        return prefixes.some(function (pre) { return d.url.indexOf(pre) === 0; });
+      });
+    }
+    if (s.scope === 'collection' && s.collectionId) {
+      return docs.filter(function (d) { return d.collection === s.collectionId; });
+    }
+    return docs;
+  }
+
+  var overlay, input, list, fuse, results = [], active = 0, currentSettings = null;
+
+  function buildOverlay() {
+    overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:none;justify-content:center;align-items:flex-start;padding:12vh 16px 16px;background:rgba(0,0,0,0.4);';
+    var panel = document.createElement('div');
+    panel.style.cssText = 'width:100%;max-width:560px;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.24);overflow:hidden;';
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #ededed;';
+    input = document.createElement('input');
+    input.style.cssText = 'flex:1;border:none;outline:none;font-size:16px;color:#171717;background:transparent;';
+    header.appendChild(input);
+    list = document.createElement('div');
+    list.style.cssText = 'max-height:50vh;overflow-y:auto;';
+    panel.appendChild(header);
+    panel.appendChild(list);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) close(); });
+    input.addEventListener('input', render);
+    overlay.addEventListener('keydown', onKeyDown);
+  }
+
+  function open(settings) {
+    if (!overlay) buildOverlay();
+    currentSettings = settings;
+    input.placeholder = settings.placeholder || 'Search...';
+    var scoped = applyScope(documents, settings);
+    fuse = new window.Fuse(scoped, {
+      keys: [{ name: 'title', weight: 3 }, { name: 'description', weight: 2 }, { name: 'content', weight: 1 }],
+      threshold: 0.4, ignoreLocation: true, minMatchCharLength: 2
+    });
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    input.value = '';
+    results = []; active = 0;
+    render();
+    input.focus();
+  }
+
+  function close() {
+    if (!overlay) return;
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') { close(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, results.length - 1); paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); paint(); }
+    else if (e.key === 'Enter' && results[active]) { window.location.href = results[active].url; }
+  }
+
+  function render() {
+    var q = input.value.trim();
+    results = (q && fuse) ? fuse.search(q, { limit: 8 }).map(function (r) { return r.item; }) : [];
+    active = 0;
+    paint();
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function paint() {
+    if (!input.value.trim()) { list.innerHTML = ''; return; }
+    if (results.length === 0) { list.innerHTML = '<div style="padding:16px;font-size:14px;color:#9ca3af;">No results</div>'; return; }
+    list.innerHTML = results.map(function (d, i) {
+      var sub = d.description || d.content || '';
+      return '<a href="' + esc(d.url) + '" data-i="' + i + '" style="display:block;padding:10px 16px;text-decoration:none;background:' + (i === active ? '#f5f5f5' : 'transparent') + ';">' +
+        '<div style="font-size:14px;font-weight:600;color:#171717;">' + esc(d.title) + '</div>' +
+        (sub ? '<div style="font-size:12px;color:#737373;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(sub) + '</div>' : '') +
+        '</a>';
+    }).join('');
+    var links = list.querySelectorAll('a');
+    links.forEach(function (a) {
+      a.addEventListener('mouseenter', function () { active = Number(a.getAttribute('data-i')); paint(); });
+    });
+  }
+
+  function boot() {
+    var triggers = document.querySelectorAll('[data-search-id]');
+    var shortcutEnabled = false;
+    triggers.forEach(function (el) {
+      var s; try { s = JSON.parse(el.getAttribute('data-search-settings') || '{}'); } catch (_) { s = { scope: 'site' }; }
+      if (s.shortcut !== false) shortcutEnabled = true;
+      el.addEventListener('click', function (e) { e.preventDefault(); open(s); });
+      el._ycodeSearchSettings = s;
+    });
+    if (shortcutEnabled) {
+      document.addEventListener('keydown', function (e) {
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+          e.preventDefault();
+          var first = document.querySelector('[data-search-id]');
+          if (first) open(first._ycodeSearchSettings || { scope: 'site' });
+        }
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+`.trim()
+
+// =============================================================================
 // Interactions extraction
 // =============================================================================
 
@@ -622,6 +766,8 @@ export interface BuildHtmlInput {
   /** Inlined @font-face + font class CSS for Google and custom fonts. */
   fontsCss?: string | null
   includeSwiper: boolean
+  /** When set, embeds Fuse.js + this JSON index and the search runtime. */
+  searchIndexJson?: string | null
   interactions: ExportedInteraction[]
   /** Site-wide custom code from Settings → General (head + body slots). */
   globalCustomCodeHead?: string | null
@@ -644,6 +790,7 @@ export function buildDocument({
   colorVariablesCss,
   fontsCss,
   includeSwiper,
+  searchIndexJson,
   interactions,
   globalCustomCodeHead,
   globalCustomCodeBody,
@@ -700,6 +847,12 @@ export function buildDocument({
     const safe = JSON.stringify(interactions).replace(/<\/(script)/gi, '<\\/$1')
     trailingScripts.push(`<script type="application/json" id="ycode-interactions">${safe}</script>`)
     trailingScripts.push(`<script>${INTERACTIONS_BOOT_SCRIPT}</script>`)
+  }
+  if (searchIndexJson) {
+    const safeIndex = searchIndexJson.replace(/<\/(script)/gi, '<\\/$1')
+    trailingScripts.push(`<script type="application/json" id="ycode-search-index">${safeIndex}</script>`)
+    trailingScripts.push(`<script src="${FUSE_JS_PATH}"></script>`)
+    trailingScripts.push(`<script>${SEARCH_BOOT_SCRIPT}</script>`)
   }
   // Only ship the visibility runtime when the rendered body actually
   // contains a date-preset-driven rule — saves ~1.5 KB on pages that

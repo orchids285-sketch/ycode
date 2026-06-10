@@ -531,6 +531,67 @@ export const utilityTemplates: Record<string, BlockTemplate> = {
     }),
   },
 
+  siteSearch: {
+    icon: 'search',
+    name: 'Site search',
+    template: {
+      name: 'siteSearch',
+      customName: 'Site search',
+      classes: [
+        'flex', 'items-center', 'gap-[8px]', 'cursor-pointer',
+        'pt-[8px]', 'pb-[8px]', 'pl-[14px]', 'pr-[14px]',
+        'rounded-[12px]', 'bg-[#F5F5F5]', 'text-[#737373]', 'text-[14px]',
+        'w-[max-content]',
+      ],
+      settings: {
+        tag: 'button',
+        search: {
+          scope: 'site',
+          placeholder: 'Search...',
+          shortcut: true,
+        },
+      },
+      design: {
+        layout: { isActive: true, display: 'Flex', alignItems: 'center', gap: '8px' },
+        sizing: { isActive: true, width: 'max-content' },
+        spacing: { isActive: true, paddingLeft: '14px', paddingRight: '14px', paddingTop: '8px', paddingBottom: '8px' },
+        borders: { isActive: true, borderRadius: '12px' },
+        backgrounds: { isActive: true, backgroundColor: '#f5f5f5' },
+        typography: { isActive: true, fontSize: '14px', color: '#737373' },
+      },
+      attributes: {
+        type: 'button',
+      },
+      children: [
+        getTemplateRef('icon', {
+          customName: 'Icon',
+          restrictions: { copy: false, delete: false, ancestor: 'siteSearch' },
+          variables: {
+            icon: {
+              src: {
+                type: 'static_text',
+                data: {
+                  content: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clip-rule="evenodd"></path></svg>',
+                },
+              },
+            },
+          },
+          classes: ['w-[16px]', 'h-[16px]'],
+          design: { sizing: { isActive: true, width: '16px', height: '16px' } },
+        }),
+        getTemplateRef('text', {
+          key: 'siteSearchLabel',
+          customName: 'Label',
+          settings: { tag: 'span' },
+          restrictions: { copy: false, delete: false, editText: true, ancestor: 'siteSearch' },
+          variables: {
+            text: { type: 'dynamic_text', data: { content: 'Search...' } },
+          },
+        }),
+      ],
+    },
+  },
+
   htmlEmbed: {
     icon: 'code',
     name: 'Code',

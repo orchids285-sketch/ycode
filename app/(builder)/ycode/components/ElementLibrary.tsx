@@ -159,7 +159,7 @@ const elementCategories: Record<string, string[]> = {
   Media: ['image', 'icon', 'video', 'audio'],
   Form: ['form', 'filter', 'input', 'textarea', 'select', 'checkbox', 'radio', 'label'],
   Table: ['table', 'thead', 'tbody', 'tr', 'th', 'td'],
-  Utilities: ['map', 'slider', 'lightbox', 'localeSelector', 'htmlEmbed'],
+  Utilities: ['map', 'slider', 'lightbox', 'localeSelector', 'siteSearch', 'htmlEmbed'],
 };
 
 /**

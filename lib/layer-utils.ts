@@ -1668,6 +1668,9 @@ const LAYER_NAME_TO_HTML_TAG: Record<string, string> = {
   // Filter
   filter: 'div',
 
+  // Site search (trigger renders as a button)
+  siteSearch: 'button',
+
   // Checkbox / radio (the input itself is valid HTML; these are Ycode wrapper names)
   checkbox: 'input',
   radio: 'input',

@@ -48,6 +48,7 @@ const FilterableCollection = dynamic(() => import('@/components/FilterableCollec
 const LocaleSelector = dynamic(() => import('@/components/layers/LocaleSelector'));
 const AnimationInitializer = dynamic(() => import('@/components/AnimationInitializer'));
 const FilterLayerBehavior = dynamic(() => import('@/components/FilterLayerBehavior'));
+const SiteSearch = dynamic(() => import('@/components/SiteSearch'));
 
 /** True if any layer in the tree has at least one interaction configured. */
 function layerTreeHasInteractions(layers: Layer[]): boolean {
@@ -487,6 +488,7 @@ const LayerItem: React.FC<{
   // Code Embed iframe ref and effect - must be at component level
   const htmlEmbedIframeRef = React.useRef<HTMLIFrameElement>(null);
   const filterLayerRef = React.useRef<HTMLDivElement>(null);
+  const siteSearchRef = React.useRef<HTMLElement>(null);
   const htmlEmbedCode = layer.name === 'htmlEmbed'
     ? (layer.settings?.htmlEmbed?.code || '<div>Add your custom code here</div>')
     : '';
@@ -555,6 +557,11 @@ const LayerItem: React.FC<{
   // from every page that doesn't use filtering.
   const isFilterLayer = layer.name === 'filter';
   const filterOnChange = layer.settings?.filterOnChange ?? false;
+
+  // Site search Quick Menu behavior is dynamic-imported and mounted only when
+  // this layer is a search element, keeping Fuse.js + the overlay UI off pages
+  // that don't use site search.
+  const isSiteSearchLayer = layer.name === 'siteSearch';
 
   // Resolve text and image URLs with field binding support
   const textContent = (() => {
@@ -863,6 +870,9 @@ const LayerItem: React.FC<{
       if (isFilterLayer) {
         (filterLayerRef as React.MutableRefObject<HTMLDivElement | null>).current = node as HTMLDivElement | null;
       }
+      if (isSiteSearchLayer) {
+        (siteSearchRef as React.MutableRefObject<HTMLElement | null>).current = node;
+      }
     };
 
     const elementProps: Record<string, unknown> = {
@@ -917,6 +927,12 @@ const LayerItem: React.FC<{
       }
       if (SWIPER_DATA_ATTR_MAP[layer.name]) {
         elementProps[SWIPER_DATA_ATTR_MAP[layer.name]] = '';
+      }
+
+      // Site search data attributes (mirrored in static export's layerToHtml)
+      if (isSiteSearchLayer) {
+        elementProps['data-search-id'] = layer.id;
+        elementProps['data-search-settings'] = JSON.stringify(layer.settings?.search || { scope: 'site' });
       }
 
       // Lightbox data attributes (LightboxInitializer)
@@ -1775,6 +1791,20 @@ const LayerItem: React.FC<{
           containerRef={filterLayerRef}
           filterLayerId={layer.id}
           filterOnChange={filterOnChange}
+        />
+      </>
+    );
+  }
+
+  // Mount the site search Quick Menu overlay alongside the rendered trigger.
+  if (isSiteSearchLayer) {
+    content = (
+      <>
+        {content}
+        <SiteSearch
+          triggerRef={siteSearchRef}
+          settings={layer.settings?.search || { scope: 'site' }}
+          isPreview={isPreview}
         />
       </>
     );
