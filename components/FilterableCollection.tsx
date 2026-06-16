@@ -33,6 +33,7 @@ interface FilterableCollectionProps {
 
 const FC_FILTERED_ATTR = 'data-fc-filtered';
 const FC_SKELETON_ATTR = 'data-fc-skeleton';
+const FC_RUNTIME_SKELETON_ATTR = 'data-fc-runtime-skeleton';
 const FC_SKELETON_STYLE_ID = 'fc-skeleton-style';
 const FC_PRERENDER_HIDE_ATTR = 'data-fc-prerender-hide';
 
@@ -184,7 +185,7 @@ export default function FilterableCollection({
     setRenderInitialSkeleton(false);
     const parent = getParent();
     if (!parent) return;
-    parent.querySelectorAll(`[${FC_SKELETON_ATTR}]`).forEach(el => el.remove());
+    parent.querySelectorAll(`[${FC_RUNTIME_SKELETON_ATTR}]`).forEach(el => el.remove());
   }, [getParent]);
 
   // Show placeholder cards while a fresh list is fetched, but only when there's
@@ -224,6 +225,7 @@ export default function FilterableCollection({
       }
       node.style.display = '';
       node.setAttribute(FC_SKELETON_ATTR, '');
+      node.setAttribute(FC_RUNTIME_SKELETON_ATTR, '');
       parent.appendChild(node);
     }
   }, [getParent, limit]);
