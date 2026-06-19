@@ -13,7 +13,7 @@ import {
   getAllPublishedRoutes,
   invalidateForLocalisationChanges,
 } from '@/lib/services/cacheService';
-import { findAffectedPages } from '@/lib/repositories/pageLayersRepository';
+import { findAffectedPages, findCollectionsEmbeddingComponents, getEmbeddedComponentIdsForCollections } from '@/lib/repositories/pageLayersRepository';
 import { dispatchSitePublishedEvent } from '@/lib/services/webhookService';
 import { getAllDraftPages, hardDeleteSoftDeletedPages, backfillMissingPageHashes } from '@/lib/repositories/pageRepository';
 import { publishComponents, getUnpublishedComponents, hardDeleteSoftDeletedComponents } from '@/lib/repositories/componentRepository';
@@ -25,12 +25,18 @@ import { publishAssets, getUnpublishedAssets, hardDeleteSoftDeletedAssets } from
 import { publishAssetFolders, getUnpublishedAssetFolders, hardDeleteSoftDeletedAssetFolders } from '@/lib/repositories/assetFolderRepository';
 import { publishFonts } from '@/lib/repositories/fontRepository';
 import { getColorVariablesHash } from '@/lib/repositories/colorVariableRepository';
+import { publishGlobalVariables, hardDeleteSoftDeletedGlobalVariables } from '@/lib/repositories/globalVariableRepository';
 import { getSettingByKey, setSetting } from '@/lib/repositories/settingsRepository';
 import type { Setting, PublishStats, PublishTableStats } from '@/types';
 
 // Disable caching for this route
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+// Publishing a large site (pages, collections, CSS regen, cache invalidation)
+// can exceed a platform's default serverless timeout. Raise to the max so big
+// sites don't time out mid-publish.
+export const maxDuration = 300;
 
 /** Group rows (fields, items, …) by their parent collection_id. */
 function groupByCollectionId<T extends { collection_id: string }>(rows: T[]): Map<string, T[]> {
@@ -70,6 +76,7 @@ interface PublishResult {
     assetsDeleted: number;
     locales: number;
     translations: number;
+    globalVariables: number;
     css: boolean;
   };
   published_at_setting: Setting;
@@ -99,6 +106,7 @@ function createEmptyStats(): PublishStats {
       assets: emptyTableStats(),
       locales: emptyTableStats(),
       translations: emptyTableStats(),
+      global_variables: emptyTableStats(),
       css: emptyTableStats(),
     },
   };
@@ -152,6 +160,7 @@ export async function POST(request: NextRequest) {
         assetsDeleted: 0,
         locales: 0,
         translations: 0,
+        globalVariables: 0,
         css: false,
       },
       published_at_setting: {
@@ -169,6 +178,7 @@ export async function POST(request: NextRequest) {
     const publishedCollectionIds: string[] = [];
     const changedComponentIds: string[] = [];
     const changedLayerStyleIds: string[] = [];
+    let globalsChanged = false;
     const deletedCollectionItemSlugs: Map<string, string[]> = new Map();
     const renamedPageOldRoutes: string[] = [];
     const unpublishedPageRoutes: string[] = [];
@@ -283,6 +293,7 @@ export async function POST(request: NextRequest) {
             const staleSlugsCombined = [
               ...(p?.deletedItemSlugs || []),
               ...(p?.renamedItemOldSlugs || []),
+              ...(p?.unpublishedItemSlugs || []),
             ];
             if (staleSlugsCombined.length > 0) {
               const existing = deletedCollectionItemSlugs.get(collectionPublish.collectionId) || [];
@@ -351,6 +362,7 @@ export async function POST(request: NextRequest) {
           const staleSlugsCombined = [
             ...(p?.deletedItemSlugs || []),
             ...(p?.renamedItemOldSlugs || []),
+            ...(p?.unpublishedItemSlugs || []),
           ];
           if (staleSlugsCombined.length > 0) {
             const existing = deletedCollectionItemSlugs.get(collection.id) || [];
@@ -497,6 +509,12 @@ export async function POST(request: NextRequest) {
         // Non-fatal
       }
 
+      try {
+        await hardDeleteSoftDeletedGlobalVariables();
+      } catch {
+        // Non-fatal
+      }
+
       // Asset folders
       {
         const stepStart = performance.now();
@@ -556,6 +574,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Global variables (site-wide singletons — any change can affect any
+      // page, so a non-zero change count forces full cache invalidation below).
+      {
+        const stepStart = performance.now();
+        try {
+          const globalsResult = await publishGlobalVariables();
+          result.changes.globalVariables = globalsResult.count;
+          stats.tables.global_variables.added = globalsResult.count;
+          if (globalsResult.count > 0) {
+            globalsChanged = true;
+          }
+        } catch {
+          // Non-fatal
+        }
+        stats.tables.global_variables.durationMs = Math.round(performance.now() - stepStart);
+      }
+
       // Locales and translations
       if (publishLocales) {
         try {
@@ -613,6 +648,15 @@ export async function POST(request: NextRequest) {
         globalChangedReason = `color hash check failed: ${err instanceof Error ? err.message : 'unknown'}`;
       }
 
+      // Global variables can be injected into any page, so any published
+      // change requires invalidating every cached route.
+      if (globalsChanged) {
+        globalChanged = true;
+        globalChangedReason = globalChangedReason
+          ? `${globalChangedReason}; global variables changed`
+          : 'global variables changed';
+      }
+
       // Locales/translations live in a separate table — their changes don't
       // affect page/component content_hash, so selective page invalidation
       // misses them. We compute exact locale-prefixed URL invalidation
@@ -621,7 +665,26 @@ export async function POST(request: NextRequest) {
 
       // Find pages indirectly affected by changed components, styles, collections
       // Single scan of draft page_layers instead of one scan per resource type
-      const activeCollectionIds = publishedCollectionIds;
+      //
+      // Components embedded inside a CMS Rich Text *field* live in
+      // collection_item_values, not page_layers, so the page_layers scan can't
+      // see them. Map changed components → collections whose published rich-text
+      // values embed them, and fold those collections into the collection scan
+      // so the CMS pages rendering those items get invalidated.
+      let componentEmbeddingCollectionIds: string[] = [];
+      if (changedComponentIds.length > 0) {
+        try {
+          componentEmbeddingCollectionIds = await findCollectionsEmbeddingComponents(changedComponentIds);
+          if (componentEmbeddingCollectionIds.length > 0) {
+            console.log(`[Cache] components embedded in ${componentEmbeddingCollectionIds.length} collection(s) via CMS rich-text fields`);
+          }
+        } catch (err) {
+          // Non-fatal: degrade to full invalidation so stale CMS pages still refresh
+          console.warn('[Cache] CMS rich-text component scan failed, escalating:', err instanceof Error ? err.message : err);
+          globalChanged = true;
+        }
+      }
+      const activeCollectionIds = [...new Set([...publishedCollectionIds, ...componentEmbeddingCollectionIds])];
 
       let indirectlyAffectedPageIds: string[] = [];
       let cssAffectedPageIds: string[] = [];
@@ -649,6 +712,33 @@ export async function POST(request: NextRequest) {
         }
       } catch {
         // Safety: if dependency scan fails, degrade to full invalidation
+        globalChanged = true;
+      }
+
+      // Dynamic CMS pages render components embedded in rich-text field VALUES
+      // (stored in collection_item_values, NOT page_layers). Those pages never
+      // land in cssAffectedPageIds via the page_layers scan above, so their
+      // per-page CSS would stay stale on a component or CMS-value change. Find
+      // the collections that actually embed components — whether the changed
+      // component is embedded, or a published collection's values embed any
+      // component — and fold their dynamic pages into the CSS regen set so
+      // generateCSSForPages recompiles them (it seeds the embedded components).
+      try {
+        const cssCandidateCollectionIds = [...new Set([...publishedCollectionIds, ...componentEmbeddingCollectionIds])];
+        if (cssCandidateCollectionIds.length > 0) {
+          const embeddedByCollection = await getEmbeddedComponentIdsForCollections(cssCandidateCollectionIds);
+          const collectionsWithEmbeds = Array.from(embeddedByCollection.keys());
+          if (collectionsWithEmbeds.length > 0) {
+            const cmsAffected = await findAffectedPages([], [], collectionsWithEmbeds);
+            if (cmsAffected.collectionPageIds.length > 0) {
+              cssAffectedPageIds = [...new Set([...cssAffectedPageIds, ...cmsAffected.collectionPageIds])];
+              console.log(`[Cache] CMS rich-text-embedded components: regenerating CSS for ${cmsAffected.collectionPageIds.length} dynamic page(s)`);
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal: degrade to full invalidation so stale CMS pages still refresh
+        console.warn('[Cache] CMS-embedded-component CSS scan failed, escalating:', err instanceof Error ? err.message : err);
         globalChanged = true;
       }
 
@@ -843,7 +933,8 @@ export async function POST(request: NextRequest) {
       result.changes.assetFolders +
       result.changes.assets +
       result.changes.locales +
-      result.changes.translations;
+      result.changes.translations +
+      result.changes.globalVariables;
 
     return noCache({
       data: result,

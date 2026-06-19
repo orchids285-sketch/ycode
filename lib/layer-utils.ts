@@ -15,9 +15,51 @@ import { parseMultiReferenceValue, normalizeBooleanValue } from '@/lib/collectio
 import { getInheritedValue } from '@/lib/tailwind-class-mapper';
 import cloneDeep from 'lodash/cloneDeep';
 import { layerHasLink, hasLinkInTree, hasRichTextLinks } from '@/lib/link-utils';
+import { HTML_TO_REACT_ATTRS } from '@/lib/parse-head-html';
 
 // Alias for backwards compatibility within this file
 const hasLinkSettings = layerHasLink;
+
+/**
+ * Parse an inline CSS style string into a React style object.
+ * Splits on the first colon per rule so values containing colons (e.g. urls) survive.
+ * CSS custom properties (--var) are preserved verbatim; other props are camelCased.
+ */
+export function parseStyleStringToObject(style: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const rule of style.split(';')) {
+    const trimmed = rule.trim();
+    if (!trimmed) continue;
+    const colonIndex = trimmed.indexOf(':');
+    if (colonIndex === -1) continue;
+    const prop = trimmed.slice(0, colonIndex).trim();
+    const value = trimmed.slice(colonIndex + 1).trim();
+    if (!prop || !value) continue;
+    const key = prop.startsWith('--') ? prop : prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Apply user-defined custom attributes onto a React props object, mapping HTML
+ * attribute names to their JSX equivalents. A string `style` attribute is parsed
+ * into an object and merged with any existing style (React rejects style strings).
+ */
+export function applyCustomAttributes(
+  target: Record<string, unknown>,
+  customAttributes: Record<string, string>,
+): void {
+  for (const [name, value] of Object.entries(customAttributes)) {
+    const jsxName = HTML_TO_REACT_ATTRS[name.toLowerCase()] || name;
+    if (jsxName === 'style' && typeof value === 'string') {
+      const existing = (typeof target.style === 'object' && target.style ? target.style : {}) as Record<string, string>;
+      target.style = { ...existing, ...parseStyleStringToObject(value) };
+      continue;
+    }
+    target[jsxName] = value;
+  }
+}
 
 // ─── Cached Layer Index ───
 
@@ -1426,7 +1468,8 @@ export function resolveFieldValue(
   fieldVariable: FieldVariable,
   collectionItemData?: Record<string, string>,
   pageCollectionItemData?: Record<string, string> | null,
-  layerDataMap?: Record<string, Record<string, string>>
+  layerDataMap?: Record<string, Record<string, string>>,
+  globalsData?: Record<string, string>
 ): string | undefined {
   const { field_id, source, collection_layer_id, relationships = [] } = fieldVariable.data;
   if (!field_id) {
@@ -1445,7 +1488,8 @@ export function resolveFieldValue(
     collectionItemData,
     pageCollectionItemData,
     collection_layer_id,
-    layerDataMap
+    layerDataMap,
+    globalsData
   );
 }
 
@@ -4316,17 +4360,22 @@ export function updateLayerProps(
 
 /**
  * Find all layers with a custom anchor ID (settings.id takes priority over attributes.id).
+ * Deduplicates by anchor ID since an `#id` link resolves to the first match, so a
+ * repeated ID (e.g. duplicated component instances) would otherwise produce duplicate
+ * dropdown options and React key collisions.
  * Used by link settings to populate anchor selection dropdowns.
  */
 export function findLayersWithAnchorId(layers: Layer[]): Array<{ layer: Layer; id: string }> {
   const result: Array<{ layer: Layer; id: string }> = [];
+  const seen = new Set<string>();
   const stack: Layer[] = [...layers];
 
   while (stack.length > 0) {
     const layer = stack.pop()!;
 
     const layerId = layer.settings?.id || layer.attributes?.id;
-    if (layerId) {
+    if (layerId && !seen.has(layerId)) {
+      seen.add(layerId);
       result.push({ layer, id: layerId });
     }
 

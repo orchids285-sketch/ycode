@@ -16,14 +16,16 @@
 import React, { useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import type { Layer, Locale, FormSettings, Component, DesignColorVariable, PasswordProtectionContext } from '@/types';
-import { getLayerHtmlTag, getClassesString, getText, resolveFieldValue, isTextContentLayer, getCollectionVariable, filterDisabledSliderLayers } from '@/lib/layer-utils';
+import { getLayerHtmlTag, getClassesString, getText, resolveFieldValue, isTextContentLayer, getCollectionVariable, filterDisabledSliderLayers, applyCustomAttributes } from '@/lib/layer-utils';
 import { getMapIframeProps, DEFAULT_MAP_SETTINGS, resolveMarkerColor } from '@/lib/map-utils';
+import { HTML_TO_REACT_ATTRS } from '@/lib/parse-head-html';
 import { SWIPER_CLASS_MAP, SWIPER_DATA_ATTR_MAP } from '@/lib/slider-constants';
 import { getDynamicTextContent, getImageUrlFromVariable, getVideoUrlFromVariable, getIframeUrlFromVariable, isFieldVariable, isAssetVariable, isStaticTextVariable, isDynamicTextVariable, getStaticTextContent, getAssetId, resolveDesignStyles } from '@/lib/variable-utils';
 import { getTranslatedAssetId, getTranslatedText } from '@/lib/locale-runtime';
 import { isValidLinkSettings, generateLinkHref, resolveLinkAttrs, isLinkAtCollectionBoundary, isLinkToCurrentPage, type LinkResolutionContext } from '@/lib/link-utils';
 import { DEFAULT_ASSETS, buildImageSizes, generateImageSrcset, getOptimizedImageUrl, getSvgAspectRatioStyle, parseImageDimension } from '@/lib/asset-utils';
 import { resolveInlineVariablesFromData } from '@/lib/inline-variables';
+import { mergeGlobalsIntoFieldData, type GlobalFieldMeta } from '@/lib/collection-field-utils';
 import { extractPlainTextFromTiptap } from '@/lib/tiptap-utils';
 import { renderRichText, hasBlockElementsWithInlineVariables, getTextStyleClasses, flattenTiptapParagraphs, type RichTextLinkContext, type RenderComponentBlockFn } from '@/lib/text-format-utils';
 import { combineBgValues, mergeStaticBgVars } from '@/lib/tailwind-class-mapper';
@@ -114,6 +116,10 @@ interface LayerRendererPublicProps {
   ancestorComponentIds?: Set<string>;
   isSlideChild?: boolean;
   serverSettings?: Record<string, unknown>;
+  /** Site-wide global variables (id -> value), merged into field resolution. */
+  globalsData?: Record<string, string>;
+  /** Site-wide global variable metadata (id -> type/name), used for render-time type resolution. */
+  globalsMeta?: Record<string, GlobalFieldMeta>;
   /**
    * Layer id of the LCP candidate image, detected server-side. When this image
    * is rendered we override the template's default `loading="lazy"` with
@@ -157,6 +163,8 @@ const LayerRendererPublic: React.FC<LayerRendererPublicProps> = ({
   ancestorComponentIds,
   isSlideChild: isSlideChildProp,
   serverSettings,
+  globalsData,
+  globalsMeta,
   lcpCandidateLayerId,
   passwordProtection,
 }) => {
@@ -216,6 +224,7 @@ const LayerRendererPublic: React.FC<LayerRendererPublicProps> = ({
               sortByInputLayerId={layer._filterConfig!.sortByInputLayerId}
               sortOrderInputLayerId={layer._filterConfig!.sortOrderInputLayerId}
               limit={layer._filterConfig!.limit}
+              maxTotal={layer._filterConfig!.maxTotal}
               paginationMode={layer._filterConfig!.paginationMode}
               layerTemplate={layer._filterConfig!.layerTemplate}
               collectionLayerClasses={layer._filterConfig!.collectionLayerClasses}
@@ -272,6 +281,8 @@ const LayerRendererPublic: React.FC<LayerRendererPublicProps> = ({
         ancestorComponentIds={ancestorComponentIds}
         isSlideChild={isSlideChildProp}
         serverSettings={serverSettings}
+        globalsData={globalsData}
+        globalsMeta={globalsMeta}
         lcpCandidateLayerId={lcpCandidateLayerId}
         passwordProtection={passwordProtection}
       />
@@ -315,6 +326,8 @@ const LayerItem: React.FC<{
   ancestorComponentIds?: Set<string>;
   isSlideChild?: boolean;
   serverSettings?: Record<string, unknown>;
+  globalsData?: Record<string, string>;
+  globalsMeta?: Record<string, GlobalFieldMeta>;
   lcpCandidateLayerId?: string | null;
   passwordProtection?: PasswordProtectionContext;
 }> = ({
@@ -346,12 +359,20 @@ const LayerItem: React.FC<{
   ancestorComponentIds,
   isSlideChild,
   serverSettings,
+  globalsData,
+  globalsMeta,
   lcpCandidateLayerId,
   passwordProtection,
 }) => {
   const classesString = getClassesString(layer);
   const collectionLayerItemId = layer._collectionItemId || collectionItemId;
-  const collectionLayerData = layer._collectionItemValues || collectionItemData;
+  const baseCollectionLayerData = layer._collectionItemValues || collectionItemData;
+  // Merge site-wide globals into the collection data map so global-source
+  // bindings resolve anywhere (global ids are unique UUIDs, no collisions).
+  const collectionLayerData = React.useMemo(
+    () => mergeGlobalsIntoFieldData(baseCollectionLayerData, globalsData),
+    [baseCollectionLayerData, globalsData]
+  );
   const effectiveLayerDataMap = React.useMemo(() => ({
     ...layerDataMap,
     ...(layer._layerDataMap || {}),
@@ -405,9 +426,11 @@ const LayerItem: React.FC<{
     resolvedAssets,
     components: componentsProp,
     serverSettings,
+    globalsData,
+    globalsMeta,
     lcpCandidateLayerId,
     passwordProtection,
-  }), [isPublished, pageId, collectionLayerData, collectionLayerItemId, effectiveLayerDataMap, pageCollectionItemId, pageCollectionItemData, pageCollectionSortedItemIds, hiddenLayerInfo, currentLocale, availableLocales, localeSelectorFormat, localizedPageUrls, isInsideForm, isInsideLink, parentFormSettings, pages, folders, collectionItemSlugs, isPreview, translations, anchorMap, resolvedAssets, componentsProp, serverSettings, lcpCandidateLayerId, passwordProtection]);
+  }), [isPublished, pageId, collectionLayerData, collectionLayerItemId, effectiveLayerDataMap, pageCollectionItemId, pageCollectionItemData, pageCollectionSortedItemIds, hiddenLayerInfo, currentLocale, availableLocales, localeSelectorFormat, localizedPageUrls, isInsideForm, isInsideLink, parentFormSettings, pages, folders, collectionItemSlugs, isPreview, translations, anchorMap, resolvedAssets, componentsProp, serverSettings, globalsData, globalsMeta, lcpCandidateLayerId, passwordProtection]);
 
   const renderComponentBlock: RenderComponentBlockFn = useCallback(
     (comp, resolvedLayers, _overrides, key, innerAncestorIds) => {
@@ -612,7 +635,7 @@ const LayerItem: React.FC<{
       const variable = shouldFlatten
         ? { ...textVariable, data: { ...textVariable.data, content: flattenTiptapParagraphs(textVariable.data.content) } }
         : textVariable;
-      return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, false, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, shouldFlatten);
+      return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, false, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, shouldFlatten, globalsMeta);
     }
 
     // Check for inline variables in DynamicTextVariable format (legacy)
@@ -787,13 +810,6 @@ const LayerItem: React.FC<{
     const Tag = htmlTag as any;
     const { style: attrStyle, ...otherAttributes } = effectiveLayer.attributes || {};
 
-    // Map HTML attributes to React JSX equivalents
-    const htmlToJsxAttrMap: Record<string, string> = {
-      'for': 'htmlFor',
-      'class': 'className',
-      'autofocus': 'autoFocus',
-    };
-
     // Convert string boolean values to actual booleans and map HTML attrs to JSX
     const normalizedAttributes = Object.fromEntries(
       Object.entries(otherAttributes)
@@ -804,7 +820,7 @@ const LayerItem: React.FC<{
         })
         .map(([key, value]) => {
           // Map HTML attribute names to JSX equivalents
-          const jsxKey = htmlToJsxAttrMap[key] || key;
+          const jsxKey = HTML_TO_REACT_ATTRS[key.toLowerCase()] || key;
 
           // If value is already a boolean, keep it
           if (typeof value === 'boolean') {
@@ -988,11 +1004,9 @@ const LayerItem: React.FC<{
       elementProps.id = layer.attributes.id;
     }
 
-    // Apply custom attributes from settings
+    // Apply custom attributes from settings (map HTML attr names to JSX equivalents)
     if (layer.settings?.customAttributes) {
-      Object.entries(layer.settings.customAttributes).forEach(([name, value]) => {
-        elementProps[name] = value;
-      });
+      applyCustomAttributes(elementProps, layer.settings.customAttributes);
     }
 
     // Select with placeholder: set defaultValue so React shows the placeholder option
@@ -1507,11 +1521,9 @@ const LayerItem: React.FC<{
             iframeProps.id = layer.attributes.id;
           }
 
-          // Apply custom attributes from settings
+          // Apply custom attributes from settings (map HTML attr names to JSX equivalents)
           if (layer.settings?.customAttributes) {
-            Object.entries(layer.settings.customAttributes).forEach(([name, value]) => {
-              iframeProps[name] = value;
-            });
+            applyCustomAttributes(iframeProps, layer.settings.customAttributes);
           }
 
           return (
