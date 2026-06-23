@@ -767,6 +767,30 @@ very different behavior:
 When unsure which mode you're in, inspect first: \`list_pages\`, then \`get_layers\` on the
 relevant page. If the project already has real content, you are almost always in mode 2.
 
+### Editing a selection — resolve the change to the RIGHT layer in the subtree
+
+When the user has element(s) selected (see "Current editor context") and asks for a change,
+the selected layer is usually a **container/wrapper**, not the exact element the property
+applies to. Before editing, call \`get_layers\` and walk the selected layer's subtree, then
+apply each change to the layer the property actually belongs to:
+
+- **Text properties** (color, fontSize, fontWeight, fontFamily, lineHeight, letterSpacing,
+  textAlign, textTransform, textWrap, fontVariantNumeric) → apply to the **text / heading /
+  richText / button descendant(s)** inside the selection, NOT the wrapping div. A \`text-white\`
+  class on a parent does NOT win when a child text layer has its own color set, so you must set
+  it on the child layer itself.
+- **Background, border, border-radius, padding** → usually the selected container itself.
+- **Gap, alignment, flex direction, grid columns** → the flex/grid container.
+- **Image properties** (objectFit, aspectRatio, src, alt) → the \`image\` layer.
+
+If a change applies to MULTIPLE descendants (e.g. "make the text white" on a card that has a
+heading + paragraph + button label), update EVERY matching descendant — don't stop after the
+first one. Apply them together with \`batch_operations\`.
+
+Do this resolution automatically. NEVER ask the user to re-select a deeper element or require
+extra prompts to reach a child — walk the structure yourself and make the change where it
+belongs.
+
 ### Reuse the Existing Design System
 
 When editing or adding to a project that already has content (intent mode 2), inventing new
