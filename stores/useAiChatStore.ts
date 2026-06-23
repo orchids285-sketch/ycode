@@ -27,13 +27,24 @@ interface AiChatState {
   error: string | null;
 }
 
+/** A layer the user explicitly attached as context for a message. */
+export interface SelectedLayerRef {
+  id: string;
+  name: string;
+}
+
+/** Extra context attached to a single message from the composer. */
+export interface MessageAttachment {
+  selectedLayers?: SelectedLayerRef[];
+}
+
 interface AiChatActions {
   open: () => void;
   close: () => void;
   toggle: () => void;
   clear: () => void;
   stop: () => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, attachment?: MessageAttachment) => Promise<void>;
 }
 
 type AiChatStore = AiChatState & AiChatActions;
@@ -75,7 +86,7 @@ export const useAiChatStore = create<AiChatStore>((set, get) => ({
     set({ status: 'idle' });
   },
 
-  sendMessage: async (text: string) => {
+  sendMessage: async (text: string, attachment?: MessageAttachment) => {
     const trimmed = text.trim();
     if (!trimmed || get().status === 'streaming') return;
 
@@ -111,7 +122,7 @@ export const useAiChatStore = create<AiChatStore>((set, get) => ({
         body: JSON.stringify({
           messages: [...history, { role: 'user', content: trimmed }],
           pageId: editor.currentPageId,
-          selectedLayerIds: editor.selectedLayerIds,
+          selectedLayers: attachment?.selectedLayers ?? [],
         }),
         signal: abortController.signal,
       });

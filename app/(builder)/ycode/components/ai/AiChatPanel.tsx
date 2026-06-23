@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { getLayerName } from '@/lib/layer-display-utils';
+import { findLayerById } from '@/lib/layer-utils';
 import { cn } from '@/lib/utils';
 import { useAiChatStore } from '@/stores/useAiChatStore';
-import type { ChatMessage } from '@/stores/useAiChatStore';
+import type { ChatMessage, SelectedLayerRef } from '@/stores/useAiChatStore';
+import { useEditorStore } from '@/stores/useEditorStore';
+import { usePagesStore } from '@/stores/usePagesStore';
 
 import { toolCallLabel } from './ai-tool-labels';
 
@@ -31,10 +35,34 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
   const clear = useAiChatStore((s) => s.clear);
   const close = useAiChatStore((s) => s.close);
 
+  const selectedLayerIds = useEditorStore((s) => s.selectedLayerIds);
+  const currentPageId = useEditorStore((s) => s.currentPageId);
+  const draftLayers = usePagesStore((s) =>
+    currentPageId ? s.draftsByPageId[currentPageId]?.layers : undefined,
+  );
+
   const [input, setInput] = useState('');
+  const [contextDetached, setContextDetached] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isStreaming = status === 'streaming';
+
+  const selectedRefs = useMemo<SelectedLayerRef[]>(() => {
+    if (!selectedLayerIds.length || !draftLayers) return [];
+    return selectedLayerIds
+      .map((id) => {
+        const layer = findLayerById(draftLayers, id);
+        return layer ? { id, name: getLayerName(layer) } : null;
+      })
+      .filter((ref): ref is SelectedLayerRef => ref !== null);
+  }, [selectedLayerIds, draftLayers]);
+
+  // A fresh selection re-attaches context that the user previously dismissed.
+  useEffect(() => {
+    setContextDetached(false);
+  }, [selectedLayerIds]);
+
+  const attachedRefs = contextDetached ? [] : selectedRefs;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -44,7 +72,7 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
   const submit = (text: string) => {
     if (!text.trim() || isStreaming) return;
     setInput('');
-    void sendMessage(text);
+    void sendMessage(text, { selectedLayers: attachedRefs });
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -129,6 +157,29 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
       </div>
 
       <div className="border-t p-3 shrink-0">
+        {attachedRefs.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 mb-2">
+            {attachedRefs.map((ref) => (
+              <span
+                key={ref.id}
+                className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground max-w-[160px]"
+              >
+                <Icon name="layers" className="size-3 shrink-0" />
+                <span className="truncate">{ref.name}</span>
+              </span>
+            ))}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="size-5 p-0 text-muted-foreground"
+              onClick={() => setContextDetached(true)}
+              aria-label="Remove selection context"
+              title="Remove selection context"
+            >
+              <Icon name="x" className="size-3" />
+            </Button>
+          </div>
+        )}
         <div className="relative">
           <Textarea
             value={input}

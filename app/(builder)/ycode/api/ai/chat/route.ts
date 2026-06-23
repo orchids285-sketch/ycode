@@ -34,6 +34,7 @@ const bodySchema = z.object({
   messages: z.array(messageSchema).min(1),
   pageId: z.string().nullish(),
   selectedLayerIds: z.array(z.string()).optional(),
+  selectedLayers: z.array(z.object({ id: z.string(), name: z.string().optional() })).optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -79,7 +80,11 @@ export async function POST(request: Request): Promise<Response> {
           provider,
           model,
           messages,
-          context: { pageId: parsed.pageId, selectedLayerIds: parsed.selectedLayerIds },
+          context: {
+            pageId: parsed.pageId,
+            selectedLayerIds: parsed.selectedLayerIds,
+            selectedLayers: parsed.selectedLayers,
+          },
           signal: abortController.signal,
         })) {
           send(event);

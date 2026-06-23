@@ -14,6 +14,8 @@ import type {
 export interface AgentEditorContext {
   pageId?: string | null;
   selectedLayerIds?: string[];
+  /** Selected layers with display names — preferred over bare ids when present. */
+  selectedLayers?: Array<{ id: string; name?: string }>;
 }
 
 export interface RunAgentOptions {
@@ -127,9 +129,15 @@ function buildSystemPrompt(context?: AgentEditorContext): string {
   if (context?.pageId) {
     lines.push(`The user is currently editing page with ID "${context.pageId}". When they refer to "this page", use this ID.`);
   }
-  if (context?.selectedLayerIds && context.selectedLayerIds.length > 0) {
-    const ids = context.selectedLayerIds.map((id) => `"${id}"`).join(', ');
-    lines.push(`The user currently has these layer(s) selected: ${ids}. When they say "this", "this section", or "the selected element", they mean these layer(s).`);
+  const selected = context?.selectedLayers?.length
+    ? context.selectedLayers
+    : context?.selectedLayerIds?.map((id) => ({ id, name: undefined }));
+
+  if (selected && selected.length > 0) {
+    const refs = selected
+      .map((layer) => (layer.name ? `"${layer.name}" (id: ${layer.id})` : `id: ${layer.id}`))
+      .join(', ');
+    lines.push(`The user currently has these layer(s) selected: ${refs}. When they say "this", "this section", or "the selected element", they mean these layer(s). Use these layer ids directly with the editing tools.`);
   }
 
   if (lines.length === 0) return SYSTEM_INSTRUCTIONS;
