@@ -8,6 +8,7 @@ import type {
   AgentProvider,
   AgentToolResultBlock,
   AgentToolUseBlock,
+  AgentUsage,
 } from './providers/types';
 
 /** Editor context threaded into the system prompt so "this section" resolves. */
@@ -36,6 +37,7 @@ export type RuntimeEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; name: string; ok: boolean }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -54,6 +56,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   const toolMap = getAgentToolMap();
 
   const messages: AgentMessage[] = [...options.messages];
+  const usage = new UsageTotals();
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn += 1) {
     const assistantBlocks: AgentContentBlock[] = [];
@@ -76,6 +79,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
         yield { type: 'tool_call', id: event.id, name: event.name, input: event.input };
       } else if (event.type === 'message_stop') {
         stopReason = event.stopReason;
+        usage.add(event.usage);
       }
     }
 
@@ -86,6 +90,8 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
     messages.push({ role: 'assistant', content: assistantBlocks });
 
     if (toolUses.length === 0) {
+      usage.log(model, turn + 1);
+      yield usage.toEvent();
       yield { type: 'done', stopReason };
       return;
     }
@@ -100,7 +106,52 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
     messages.push({ role: 'user', content: results });
   }
 
+  usage.log(model, MAX_TOOL_TURNS);
+  yield usage.toEvent();
   yield { type: 'error', message: `Reached the tool-call limit (${MAX_TOOL_TURNS}) without finishing.` };
+}
+
+/**
+ * Accumulates token usage across all turns of one user message and logs a
+ * summary, including how much of the input was served from the prompt cache.
+ * The cache-hit rate is the key signal for whether prompt caching (system,
+ * tools, and the rolling conversation breakpoint) is actually paying off.
+ */
+class UsageTotals {
+  private input = 0;
+  private output = 0;
+  private cacheWrite = 0;
+  private cacheRead = 0;
+
+  add(usage?: AgentUsage): void {
+    if (!usage) return;
+    this.input += usage.inputTokens;
+    this.output += usage.outputTokens;
+    this.cacheWrite += usage.cacheCreationInputTokens ?? 0;
+    this.cacheRead += usage.cacheReadInputTokens ?? 0;
+  }
+
+  log(model: string, turns: number): void {
+    const totalInput = this.input + this.cacheWrite + this.cacheRead;
+    const hitRate = totalInput > 0 ? Math.round((this.cacheRead / totalInput) * 100) : 0;
+    console.info(
+      `[ai-agent] usage model=${model} turns=${turns} ` +
+        `input=${this.input} output=${this.output} ` +
+        `cache_write=${this.cacheWrite} cache_read=${this.cacheRead} ` +
+        `cache_hit=${hitRate}%`,
+    );
+  }
+
+  /** Serialize the totals for this user message into a client-facing event. */
+  toEvent(): RuntimeEvent {
+    return {
+      type: 'usage',
+      inputTokens: this.input,
+      outputTokens: this.output,
+      cacheWriteTokens: this.cacheWrite,
+      cacheReadTokens: this.cacheRead,
+    };
+  }
 }
 
 async function executeTool(

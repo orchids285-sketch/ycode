@@ -49,8 +49,13 @@ export interface AgentMessage {
 }
 
 export interface AgentUsage {
+  /** Uncached input tokens billed at full price. */
   inputTokens: number;
   outputTokens: number;
+  /** Tokens written to the prompt cache (≈ full price + 25%). */
+  cacheCreationInputTokens?: number;
+  /** Tokens served from the prompt cache (≈ 10% of full price). */
+  cacheReadInputTokens?: number;
 }
 
 /**

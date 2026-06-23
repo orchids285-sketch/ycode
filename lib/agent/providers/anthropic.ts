@@ -51,7 +51,7 @@ export function createAnthropicProvider(apiKey: string): AgentProvider {
 
     async *streamMessage(options: ProviderStreamOptions): AsyncIterable<ProviderStreamEvent> {
       const tools = getAnthropicTools(options.tools);
-      const messages = toAnthropicMessages(options.messages);
+      const messages = withConversationCaching(toAnthropicMessages(options.messages));
 
       for (let attempt = 1; ; attempt += 1) {
         // Only safe to retry while we haven't emitted anything for this turn —
@@ -78,11 +78,15 @@ export function createAnthropicProvider(apiKey: string): AgentProvider {
           let stopReason: string | null = null;
           let inputTokens = 0;
           let outputTokens = 0;
+          let cacheCreationInputTokens = 0;
+          let cacheReadInputTokens = 0;
 
           for await (const event of stream) {
             switch (event.type) {
               case 'message_start':
                 inputTokens = event.message.usage?.input_tokens ?? 0;
+                cacheCreationInputTokens = event.message.usage?.cache_creation_input_tokens ?? 0;
+                cacheReadInputTokens = event.message.usage?.cache_read_input_tokens ?? 0;
                 break;
 
               case 'content_block_start':
@@ -130,7 +134,12 @@ export function createAnthropicProvider(apiKey: string): AgentProvider {
                 yield {
                   type: 'message_stop',
                   stopReason,
-                  usage: { inputTokens, outputTokens },
+                  usage: {
+                    inputTokens,
+                    outputTokens,
+                    cacheCreationInputTokens,
+                    cacheReadInputTokens,
+                  },
                 };
                 break;
 
@@ -198,6 +207,31 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+/**
+ * Add a rolling cache breakpoint on the final block of the conversation.
+ *
+ * System and tools already carry breakpoints (2 of Anthropic's 4 allowed). This
+ * marks the end of the transcript so that on each tool-loop turn the growing
+ * prefix — prior tool calls and their potentially large results (e.g. a full
+ * `get_layers` tree) — is read from cache (~10%) instead of re-billed in full.
+ * Short prefixes that don't meet the cache minimum are simply not cached, which
+ * is harmless.
+ */
+function withConversationCaching(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  if (messages.length === 0) return messages;
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (!Array.isArray(last.content) || last.content.length === 0) return messages;
+
+  const blocks = [...last.content];
+  const tail = blocks.length - 1;
+  blocks[tail] = { ...blocks[tail], cache_control: { type: 'ephemeral' } } as Anthropic.ContentBlockParam;
+
+  const next = [...messages];
+  next[lastIndex] = { ...last, content: blocks };
+  return next;
 }
 
 /** Mark the final tool as a cache breakpoint so all tool definitions are cached. */

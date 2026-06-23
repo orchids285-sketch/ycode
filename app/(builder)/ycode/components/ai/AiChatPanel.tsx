@@ -22,7 +22,7 @@ import { getLayerName } from '@/lib/layer-display-utils';
 import { findLayerById } from '@/lib/layer-utils';
 import { cn } from '@/lib/utils';
 import { useAiChatStore } from '@/stores/useAiChatStore';
-import type { ChatMessage, ChatSession, ImageAttachment, Mention, SelectedLayerRef } from '@/stores/useAiChatStore';
+import type { ChatMessage, ChatSession, ImageAttachment, Mention, SelectedLayerRef, SessionUsage } from '@/stores/useAiChatStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
@@ -129,6 +129,7 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
   const revertTurn = useAiChatStore((s) => s.revertTurn);
   const stop = useAiChatStore((s) => s.stop);
   const close = useAiChatStore((s) => s.close);
+  const sessionUsage = useAiChatStore((s) => s.sessionUsage);
   const chats = useAiChatStore((s) => s.chats);
   const currentChatId = useAiChatStore((s) => s.currentChatId);
   const newChat = useAiChatStore((s) => s.newChat);
@@ -313,16 +314,19 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
             onSelect={loadChat}
             onDelete={deleteChat}
           />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="size-7 p-0 shrink-0"
-            onClick={newChat}
-            aria-label="New chat"
-            title="New chat"
-          >
-            <Icon name="plus" className="size-3.5" />
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            <SessionUsageBadge usage={sessionUsage} />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="size-7 p-0"
+              onClick={newChat}
+              aria-label="New chat"
+              title="New chat"
+            >
+              <Icon name="plus" className="size-3.5" />
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b">
@@ -333,6 +337,7 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
             onDelete={deleteChat}
           />
           <div className="flex items-center gap-1 shrink-0">
+            <SessionUsageBadge usage={sessionUsage} />
             <Button
               size="sm"
               variant="ghost"
@@ -546,6 +551,42 @@ function ModelPicker({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Compact token count, e.g. 950 → "950", 12_300 → "12.3k", 2_100_000 → "2.1M". */
+function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) {
+    const k = count / 1000;
+    return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`;
+  }
+  const m = count / 1_000_000;
+  return `${m < 10 ? m.toFixed(1) : Math.round(m)}M`;
+}
+
+/** Running token total for the active session, with a per-category tooltip. */
+function SessionUsageBadge({ usage }: { usage: SessionUsage }) {
+  const total =
+    usage.inputTokens + usage.outputTokens + usage.cacheWriteTokens + usage.cacheReadTokens;
+  if (total === 0) return null;
+
+  const tooltip = [
+    'Session tokens',
+    `Input: ${usage.inputTokens.toLocaleString()}`,
+    `Output: ${usage.outputTokens.toLocaleString()}`,
+    `Cache write: ${usage.cacheWriteTokens.toLocaleString()}`,
+    `Cache read: ${usage.cacheReadTokens.toLocaleString()}`,
+  ].join('\n');
+
+  return (
+    <span
+      title={tooltip}
+      className="flex items-center gap-1 px-1.5 text-[11px] tabular-nums text-muted-foreground"
+    >
+      <Icon name="sparkles" className="size-3" />
+      {formatTokens(total)}
+    </span>
   );
 }
 

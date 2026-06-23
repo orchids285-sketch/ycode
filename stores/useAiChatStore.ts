@@ -38,6 +38,21 @@ export interface ChatMessage {
 
 type ChatStatus = 'idle' | 'streaming';
 
+/** Running token totals for the active chat session (not persisted). */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+}
+
+const EMPTY_USAGE: SessionUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheWriteTokens: 0,
+  cacheReadTokens: 0,
+};
+
 /** A saved conversation, shown in the chat-history dropdown. */
 export interface ChatSession {
   id: string;
@@ -58,6 +73,8 @@ interface AiChatState {
   chats: ChatSession[];
   status: ChatStatus;
   error: string | null;
+  /** Cumulative token usage for the active session, shown in the panel header. */
+  sessionUsage: SessionUsage;
   /** When on, the agent screenshots its work and critiques/fixes it automatically. */
   autoReview: boolean;
   /** Chosen model id, or null to use the server-resolved default. */
@@ -120,6 +137,7 @@ type RuntimeEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; name: string; ok: boolean }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -355,6 +373,7 @@ export const useAiChatStore = create<AiChatStore>()(
         chats: [],
         status: 'idle',
         error: null,
+        sessionUsage: EMPTY_USAGE,
         autoReview: true,
         model: DEFAULT_AGENT_MODEL,
 
@@ -368,7 +387,7 @@ export const useAiChatStore = create<AiChatStore>()(
         clear: () => {
           get().stop();
           turnCheckpoints.clear();
-          set({ messages: [], error: null });
+          set({ messages: [], error: null, sessionUsage: EMPTY_USAGE });
         },
 
         newChat: () => {
@@ -379,6 +398,7 @@ export const useAiChatStore = create<AiChatStore>()(
             currentChatId: newId(),
             messages: [],
             error: null,
+            sessionUsage: EMPTY_USAGE,
           }));
         },
 
@@ -390,7 +410,7 @@ export const useAiChatStore = create<AiChatStore>()(
             const chats = commitActiveChat(state);
             const target = chats.find((chat) => chat.id === id);
             if (!target) return { chats };
-            return { chats, currentChatId: id, messages: target.messages, error: null };
+            return { chats, currentChatId: id, messages: target.messages, error: null, sessionUsage: EMPTY_USAGE };
           });
         },
 
@@ -400,7 +420,7 @@ export const useAiChatStore = create<AiChatStore>()(
             if (id !== state.currentChatId) return { chats };
             get().stop();
             turnCheckpoints.clear();
-            return { chats, currentChatId: newId(), messages: [], error: null };
+            return { chats, currentChatId: newId(), messages: [], error: null, sessionUsage: EMPTY_USAGE };
           });
         },
 
@@ -491,7 +511,7 @@ export const useAiChatStore = create<AiChatStore>()(
 function applyEvent(
   event: RuntimeEvent,
   patchAssistant: (updater: (message: ChatMessage) => ChatMessage) => void,
-  set: (partial: Partial<AiChatState>) => void,
+  set: (partial: Partial<AiChatState> | ((state: AiChatState) => Partial<AiChatState>)) => void,
 ): void {
   switch (event.type) {
     case 'text':
@@ -504,6 +524,16 @@ function applyEvent(
       patchAssistant((m) => ({
         ...m,
         toolCalls: m.toolCalls.map((call) => (call.id === event.id ? { ...call, ok: event.ok } : call)),
+      }));
+      break;
+    case 'usage':
+      set((state) => ({
+        sessionUsage: {
+          inputTokens: state.sessionUsage.inputTokens + event.inputTokens,
+          outputTokens: state.sessionUsage.outputTokens + event.outputTokens,
+          cacheWriteTokens: state.sessionUsage.cacheWriteTokens + event.cacheWriteTokens,
+          cacheReadTokens: state.sessionUsage.cacheReadTokens + event.cacheReadTokens,
+        },
       }));
       break;
     case 'error':
