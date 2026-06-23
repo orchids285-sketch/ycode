@@ -37,7 +37,7 @@ import { toast } from 'sonner';
 import { checkCircularReference } from '@/lib/component-utils';
 
 // Right sidebar is always visible in editor mode - load eagerly to avoid delay
-import RightSidebar from '../components/RightSidebar';
+import RightPanel from '../components/RightPanel';
 
 // Lazy-loaded components (heavy, not needed on initial render)
 const CMS = lazy(() => import('../components/CMS'));
@@ -2303,11 +2303,9 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
                 liveComponentUpdates={liveComponentUpdates}
               />
 
-              {/* Right Sidebar - Properties (hidden for editor role) */}
+              {/* Right Sidebar - Agent (AI) / Human (properties) switch */}
               {!isEditor && (
-                <RightSidebar
-                  onLayerUpdate={handleLayerUpdate}
-                />
+                <RightPanel onLayerUpdate={handleLayerUpdate} />
               )}
             </div>
           </>

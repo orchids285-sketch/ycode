@@ -18,7 +18,7 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
     | 'paragraph' | 'droplet' | 'expand' | 'collapse' | 'filter' | 'crosshair' | 'lightbox' | 'slider' | 'slide' | 'slides' | 'slide-button-prev' | 'slide-button-next'
     | 'slide-bullets' | 'slide-bullet' | 'slide-navigation' | 'slide-fraction' | 'loop-alternate' | 'loop-repeat' | 'listItem' | 'external-link'
     | 'settings' | 'center-block' | 'code-block' | 'table' | 'table-row' | 'table-cell' | 'add-column' | 'add-row' | 'delete-column' | 'delete-row' | 'delete-table' | 'header' | 'body'
-    | 'webflow' | 'figma' | 'space'
+    | 'webflow' | 'figma' | 'space' | 'sparkles'
   );
 }
 
@@ -1051,6 +1051,12 @@ const ICONS: Record<IconProps['name'], React.ReactNode> = {
     <g transform="scale(0.5)">
       <path d="M4 9V13H20V9H22V14C22 14.5523 21.5523 15 21 15H3C2.44772 15 2 14.5523 2 14V9H4Z" />
     </g>
+  ),
+  sparkles: (
+    <>
+      <path d="M7.1,0.5 C7.35,2.65 8.35,4.45 9.95,5.4 C8.35,6.35 7.35,8.15 7.1,10.3 C6.85,8.15 5.85,6.35 4.25,5.4 C5.85,4.45 6.85,2.65 7.1,0.5 Z" />
+      <path d="M2.6,7.2 C2.72,8.2 3.15,9 3.85,9.45 C3.15,9.9 2.72,10.7 2.6,11.7 C2.48,10.7 2.05,9.9 1.35,9.45 C2.05,9 2.48,8.2 2.6,7.2 Z" />
+    </>
   ),
 };
 
