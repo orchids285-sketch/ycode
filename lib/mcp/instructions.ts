@@ -98,6 +98,8 @@ Each layer's \`design\` object controls its appearance. Use update_layer_design 
 - lineHeight: "1.1" (tight), "1.5" (normal), "1.8" (relaxed)
 - letterSpacing: "-0.03em" (tight), "0" (normal), "0.05em" (wide)
 - textAlign: "left" | "center" | "right" | "justify"
+- textWrap: "balance" (even line lengths — use on multi-line headings), "pretty" (avoids orphans — use on body copy), "wrap", "nowrap"
+- fontVariantNumeric: "tabular-nums" (equal-width digits — use for pricing, stats, tables, countdowns), "normal", "ordinal", "slashed-zero"
 - color: "#171717", "rgb(0,0,0)", "#ffffff"
 
 **spacing** — Padding and margin
@@ -742,6 +744,48 @@ All changes are drafts until published:
 
 ## How to Build Pages — Step by Step
 
+### Step 0: Determine Intent (do this FIRST, every time)
+
+Before building anything, decide which of these three jobs you are doing — they call for
+very different behavior:
+
+1. **Recreate a reference** (user shares a screenshot, URL, or "make it look like X").
+   Aim for **maximum fidelity**: match the layout, type scale, color, and spacing of the
+   reference as closely as the tools allow. Creativity is NOT wanted here — accuracy is.
+
+2. **Edit an existing site** (the project already has pages/sections and the user wants
+   changes or additions). **Respect and extend the established design system** — reuse its
+   colors, fonts, text sizes, spacing, radii, and components. Do NOT introduce a new visual
+   language. Your additions should be indistinguishable from what's already there. See
+   "Reuse the Existing Design System" below.
+
+3. **Create something new** (blank page or "build me a landing page for…"). You have the
+   most **creative freedom**. Commit to ONE clear creative direction (a personality: bold,
+   editorial, minimal, playful…) and apply it consistently across every section. Avoid
+   generic, templated-looking output.
+
+When unsure which mode you're in, inspect first: \`list_pages\`, then \`get_layers\` on the
+relevant page. If the project already has real content, you are almost always in mode 2.
+
+### Reuse the Existing Design System
+
+When editing or adding to a project that already has content (intent mode 2), inventing new
+colors/fonts/spacing makes the result look bolted-on. ALWAYS reuse what exists:
+
+1. **Inspect before you build.** Call \`list_color_variables\`, \`list_fonts\`, and
+   \`get_layers\` (or \`export_layer_html\`) on an existing well-built section to read the
+   site's actual color tokens, font families, type sizes, spacing rhythm, and border radii.
+2. **Reuse color variables** via \`var(--<id>)\` instead of hardcoding new hex values.
+3. **Reuse the existing fonts** — don't add a new Google Font when the site already has a
+   heading/body pairing. Match existing fontSize/fontWeight steps rather than new ones.
+4. **Reuse components and styles.** If a card/button/section already exists as a component or
+   shared style, instance/apply it instead of rebuilding from scratch.
+5. **Match spacing and radii.** Read the section padding, gaps, and corner radii already in
+   use and reuse those exact values for visual consistency.
+
+Only introduce new tokens when creating something new (mode 3) or when the user explicitly
+asks for a restyle.
+
 ### CRITICAL: Use Pre-Built Layouts First
 
 YCode has 48 professionally designed layout templates. **ALWAYS use these instead of building from scratch.**
@@ -887,6 +931,21 @@ Limit to 4-5 sizes per page for clean hierarchy:
 - **Small text / Caption**: fontSize "14px", fontWeight "400"-"500", lineHeight "1.4"
 
 ALWAYS set lineHeight and fontWeight — never leave text with only fontSize.
+
+**Micro-typography (the polish that separates pro from generic):**
+- **Limit variety.** Few unique sizes AND few unique weights. Repeated elements (every card
+  title, every nav link) MUST share identical size/weight/lineHeight — never eyeball them.
+- **Smart punctuation in the literal text you write.** Use curly quotes "…" and '…' (not
+  straight " '), real apostrophes (it's, don't), em dashes — for breaks, and ellipsis …
+  Never emit straight quotes or "--" in user-facing copy.
+- **Balance headings.** On any heading likely to wrap to 2+ lines, set
+  \`typography.textWrap: "balance"\` so the lines are even instead of one long + one short.
+- **Avoid orphans in body copy.** On paragraphs, set \`typography.textWrap: "pretty"\` to stop
+  a single word dangling on the last line.
+- **Tabular numbers for data.** For pricing, stats, countdowns, tables, and any aligned
+  numeric columns, set \`typography.fontVariantNumeric: "tabular-nums"\` so digits line up.
+- **Tighten large type.** Big headings (≥40px) read better with negative tracking
+  (letterSpacing "-0.02em" to "-0.03em") and tight lineHeight ("1.05"–"1.1").
 
 Font pairings (use \`search_google_fonts\` + \`add_font\` first):
 - "Playfair Display" + "DM Sans" — Editorial/elegant

@@ -68,6 +68,8 @@ export const designSchema = z.object({
     lineHeight: z.string().optional(),
     letterSpacing: z.string().optional(),
     textAlign: z.string().optional(),
+    textWrap: z.string().optional().describe('Text wrapping: "balance" (even multi-line headings), "pretty" (avoids orphans in body copy), "wrap", or "nowrap"'),
+    fontVariantNumeric: z.string().optional().describe('Numeric glyph style: "tabular-nums" (aligned digits for pricing/data/tables), "normal", "ordinal", "slashed-zero", "lining-nums", "oldstyle-nums", "proportional-nums", "diagonal-fractions", "stacked-fractions"'),
     textTransform: z.string().optional(),
     textDecoration: z.string().optional(),
     textDecorationColor: z.string().optional(),
