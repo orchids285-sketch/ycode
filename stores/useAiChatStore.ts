@@ -165,12 +165,29 @@ let abortController: AbortController | null = null;
  */
 const turnCheckpoints = new Map<string, { pageId: string; layers: Layer[] }>();
 
+/**
+ * Page ids the agent visually edited during the in-progress turn. Used to point
+ * the visual self-review at the page that actually changed (not whatever page is
+ * currently open on the canvas). Reset at the start of each top-level turn.
+ */
+const turnEditedPageIds = new Set<string>();
+
 /** How many automatic review passes to run after a user turn. */
 const MAX_REVIEW_DEPTH = 1;
 
-/** Instruction sent alongside the screenshot during an auto-review pass. */
-const REVIEW_PROMPT =
-  'Here is a screenshot of the current page after your changes. Critically review it against my request and good design principles — layout, spacing, alignment, contrast, overflow, readability, and visual hierarchy. If anything looks wrong or low quality, fix it with the tools. If it already looks good, just briefly confirm you are done (do not make changes for the sake of it).';
+/** Instruction sent alongside the screenshot during an auto-review pass. Names
+ * the page explicitly so the agent reviews the page it actually edited and
+ * doesn't mistake it for whatever was last open in the canvas. */
+function buildReviewPrompt(pageId: string): string {
+  const page = usePagesStore.getState().pages.find((p) => p.id === pageId);
+  const pageLabel = page?.name ? `the "${page.name}" page (id: ${pageId})` : `the page you edited (id: ${pageId})`;
+  return (
+    `Here is a screenshot of ${pageLabel} after your changes — this is the page these edits belong to, so review it as that page. ` +
+    'Critically review it against my request and good design principles — layout, spacing, alignment, contrast, overflow, readability, and visual hierarchy. ' +
+    'If anything looks wrong or low quality, fix it with the tools (using this page id). ' +
+    'If it already looks good, just briefly confirm you are done (do not make changes for the sake of it).'
+  );
+}
 
 const READONLY_TOOL_PREFIXES = ['get_', 'list_', 'export_', 'search_'];
 
@@ -199,10 +216,9 @@ function isVisualMutation(name: string): boolean {
   return true;
 }
 
-/** Capture the current page's layers as a base64 image for the agent to review. */
-async function captureCurrentPageImage(): Promise<ImageAttachment | null> {
-  const pageId = useEditorStore.getState().currentPageId;
-  if (!pageId) return null;
+/** Capture a specific page's draft layers as a base64 image for the agent to
+ * review. The page must have loaded drafts (returns null otherwise). */
+async function capturePageImage(pageId: string): Promise<ImageAttachment | null> {
   const layers = usePagesStore.getState().draftsByPageId[pageId]?.layers;
   if (!layers || layers.length === 0) return null;
 
@@ -216,6 +232,33 @@ async function captureCurrentPageImage(): Promise<ImageAttachment | null> {
     console.error('Visual review capture failed:', error);
     return null;
   }
+}
+
+/**
+ * Pick which page the auto-review should screenshot — the page the agent
+ * actually edited, so the critique never targets the wrong page. Returns null
+ * (skip review) when that can't be done safely: the edited page's drafts aren't
+ * loaded, or several pages were edited and there's no single clear target.
+ *
+ * This guards the reported failure where the agent edits page A but the review
+ * screenshots the page currently open in the canvas (B) — e.g. the user
+ * navigated mid-run, or the edit targeted an @-mentioned page — making the agent
+ * "fix" the wrong page.
+ */
+function resolveReviewPageId(pinnedPageId: string | null): string | null {
+  const editedPages = [...turnEditedPageIds];
+  const drafts = usePagesStore.getState().draftsByPageId;
+
+  // Prefer the page the user was editing when they sent the message, if the
+  // agent actually changed it and its drafts are available to screenshot.
+  if (pinnedPageId && editedPages.includes(pinnedPageId) && drafts[pinnedPageId]) {
+    return pinnedPageId;
+  }
+  // Otherwise review only when exactly one page was edited and it's loaded.
+  if (editedPages.length === 1 && drafts[editedPages[0]]) {
+    return editedPages[0];
+  }
+  return null;
 }
 
 function newId(): string {
@@ -275,6 +318,10 @@ export const useAiChatStore = create<AiChatStore>()(
         text: string,
         attachment: MessageAttachment | undefined,
         reviewDepth: number,
+        // Page context pinned for the whole turn. Captured once when the user
+        // sends the message and threaded through review passes so mid-run
+        // navigation can't drift the edit/review target to the wrong page.
+        pageId: string | null,
       ): Promise<void> => {
         const trimmed = text.trim();
         const images = attachment?.images ?? [];
@@ -282,7 +329,6 @@ export const useAiChatStore = create<AiChatStore>()(
 
         const isReview = reviewDepth > 0;
         const promptText = trimmed || 'Use the attached image(s) as a reference for what to build.';
-        const editor = useEditorStore.getState();
 
         const userMessage: ChatMessage = {
           id: newId(),
@@ -296,11 +342,11 @@ export const useAiChatStore = create<AiChatStore>()(
 
         // Snapshot the active page before a real (non-review) turn so the user can
         // revert this turn's layout changes in one click.
-        if (!isReview && editor.currentPageId) {
-          const snapshot = usePagesStore.getState().draftsByPageId[editor.currentPageId]?.layers;
+        if (!isReview && pageId) {
+          const snapshot = usePagesStore.getState().draftsByPageId[pageId]?.layers;
           if (snapshot) {
             turnCheckpoints.set(userMessage.id, {
-              pageId: editor.currentPageId,
+              pageId,
               layers: structuredClone(snapshot),
             });
             userMessage.canRevert = true;
@@ -345,7 +391,7 @@ export const useAiChatStore = create<AiChatStore>()(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: [...history, { role: 'user', content: userContent }],
-              pageId: editor.currentPageId,
+              pageId,
               selectedLayers: attachment?.selectedLayers ?? [],
               mentions: attachment?.mentions ?? [],
               referenceUrls: attachment?.referenceUrls ?? [],
@@ -373,10 +419,13 @@ export const useAiChatStore = create<AiChatStore>()(
         if (get().autoReview && reviewDepth < MAX_REVIEW_DEPTH && !signal.aborted) {
           const completed = get().messages.find((m) => m.id === assistantMessage.id);
           const changedVisuals = completed?.toolCalls.some((call) => isVisualMutation(call.name)) ?? false;
-          if (changedVisuals) {
-            const shot = await captureCurrentPageImage();
+          // Review the page the agent actually edited, not whatever is open on the
+          // canvas — otherwise the agent critiques the wrong page and "fixes" it.
+          const reviewPageId = resolveReviewPageId(pageId);
+          if (changedVisuals && reviewPageId) {
+            const shot = await capturePageImage(reviewPageId);
             if (shot && !signal.aborted) {
-              await runTurn(REVIEW_PROMPT, { images: [shot] }, reviewDepth + 1);
+              await runTurn(buildReviewPrompt(reviewPageId), { images: [shot] }, reviewDepth + 1, reviewPageId);
             }
           }
         }
@@ -467,9 +516,14 @@ export const useAiChatStore = create<AiChatStore>()(
           const hasContent = text.trim().length > 0 || (attachment?.images?.length ?? 0) > 0;
           if (!hasContent || get().status !== 'idle') return;
 
+          // Pin the page context for the whole turn (including review passes) so
+          // mid-run navigation can't drift edits/review to the wrong page.
+          const pinnedPageId = useEditorStore.getState().currentPageId ?? null;
+          turnEditedPageIds.clear();
+
           set({ status: 'streaming', error: null });
           try {
-            await runTurn(text, attachment, 0);
+            await runTurn(text, attachment, 0, pinnedPageId);
           } finally {
             abortController = null;
             clearAiActiveLayerIds();
@@ -569,6 +623,27 @@ function collectLayerIds(input: unknown): string[] {
   return [...ids];
 }
 
+/** Recursively collect every `page_id` referenced by a tool call's input
+ * (handles nested `operations` arrays from `batch_operations`). */
+function collectPageIds(input: unknown): string[] {
+  const ids = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof child === 'string' && key === 'page_id') {
+          ids.add(child);
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(input);
+  return [...ids];
+}
+
 /** Layer IDs per in-flight tool call (cleared as each result arrives). */
 const inFlightToolLayerIds = new Map<string, string[]>();
 
@@ -606,6 +681,11 @@ function applyEvent(
       if (layerIds.length > 0) {
         inFlightToolLayerIds.set(event.id, layerIds);
         syncAiActiveLayerIds();
+      }
+      // Remember which page(s) the agent edited so the visual self-review targets
+      // the right page instead of whatever is currently open on the canvas.
+      if (isVisualMutation(event.name)) {
+        for (const pageId of collectPageIds(event.input)) turnEditedPageIds.add(pageId);
       }
       patchAssistant((m) => {
         const call: ChatToolCall = { id: event.id, name: event.name };
