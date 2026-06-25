@@ -54,13 +54,13 @@ Each layer has:
 - \`icon\` — SVG icon (24x24 default)
 - \`iframe\` — Embed external content. Use update_layer_iframe to set URL.
 
-**Interactive**:
+**Interactive** (ALWAYS use these native elements for forms — never simulate fields with divs/text/htmlEmbed):
 - \`button\` — Button (can have text child). Use update_layer_link to set destination.
-- \`form\` — Form container
-- \`input\`, \`textarea\` — Text fields
-- \`select\` — Dropdown select
-- \`checkbox\` — Checkbox input
-- \`radio\` — Radio button
+- \`form\` — Native form. Ships pre-populated with name/email/message fields, a submit button, and success/error alerts. Add native field children to extend it, or delete field groups you don't need.
+- \`input\`, \`textarea\` — Native text fields, each created with a label wrapper.
+- \`select\` — Native dropdown select
+- \`checkbox\` — Native checkbox input
+- \`radio\` — Native radio button
 - \`filter\` — Collection filter input
 - \`label\` — Form label
 
@@ -290,6 +290,21 @@ update_layer_settings({ layer_id: "...", map: { provider: "mapbox", latitude: 40
 **Binding select / checkbox / radio to a CMS collection:**
 \`\`\`
 update_layer_settings({ layer_id: "...", options_source: { collection_id: "<id>", sort_field_id: "<id>", sort_order: "asc" } })
+\`\`\`
+
+**Building forms (ALWAYS use native elements):**
+Forms MUST be built from native YCode form elements — never simulate a field with a \`div\`,
+styled \`text\`, or \`htmlEmbed\`. Native fields are wired for submission, validation, and the
+visual editor automatically; hand-rolled divs are not.
+\`\`\`
+// add_layer template "form" already returns a native, ready-to-use form
+add_layer({ page_id, parent_layer_id: "<container>", template: "form" })
+// Need extra fields? add native field elements as children of the form
+add_layer({ page_id, parent_layer_id: "<form layer id>", template: "input" })     // label + native <input>
+add_layer({ page_id, parent_layer_id: "<form layer id>", template: "textarea" })  // label + native <textarea>
+add_layer({ page_id, parent_layer_id: "<form layer id>", template: "select" })    // native dropdown
+// Adjust an input's type / placeholder / name
+update_layer_settings({ layer_id: "<input layer id>", tag: "input" })
 \`\`\`
 
 **Configuring form submission behavior:**
@@ -1014,6 +1029,7 @@ After building any section, call \`get_layers\` and check:
 - **NEVER** use only padding for spacing between sibling elements — use gap on the parent flex container
 - **NEVER** create more than 4-5 different font sizes on a page — maintain typographic hierarchy
 - **NEVER** skip the container pattern even for full-width background sections — the section handles the background, the container constrains the content
+- **NEVER** build form fields from \`div\`, styled \`text\`, or \`htmlEmbed\` — ALWAYS use the native \`form\`, \`input\`, \`textarea\`, \`select\`, \`checkbox\`, \`radio\`, and \`label\` elements so submission, validation, and editing work
 
 ### Typography Rules
 

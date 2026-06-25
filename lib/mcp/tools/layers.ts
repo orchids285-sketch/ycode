@@ -44,8 +44,13 @@ ELEMENT TYPES:
 - Content: heading (h1), text (paragraph), richText (rich text block with formatting)
 - Media: image, video, audio, icon, iframe
 - Actions: button
-- Forms: form, input, textarea
+- Forms: form, input, textarea, select, checkbox, radio, label — native, ready-to-use fields.
+  The "form" template arrives pre-populated with native fields, a submit button, and alerts.
 - Utilities: htmlEmbed, slider, lightbox
+
+FORMS:
+- ALWAYS build forms from these native form elements. NEVER simulate inputs/fields with
+  div, styled text, or htmlEmbed — only native fields are wired for submission and editing.
 
 NESTING RULES:
 - Leaf elements (image, text, input, video, icon, etc.) CANNOT have children

@@ -681,44 +681,18 @@ export const ELEMENT_TEMPLATES: Record<string, ElementTemplateEntry> = {
   },
   form: {
     name: 'Form',
-    description: 'Form container',
-    template: {
-      name: 'form',
-      classes: ['flex', 'flex-col', 'gap-8', 'w-full'],
-      settings: { id: 'contact-form' },
-      attributes: { method: 'POST', action: '' },
-      design: {
-        sizing: { isActive: true, width: '100%' },
-        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '2rem' },
-      },
-      children: [],
-    },
+    description: 'Native form, pre-populated with name/email/message fields, a submit button, and success/error alerts. Configure submission behavior via update_form_settings. Add or remove native field children (input, textarea, select, etc.) to customize.',
+    useBlocksTemplate: true,
   },
   input: {
     name: 'Input',
-    description: 'Text input with label',
-    template: {
-      name: 'div',
-      classes: ['w-full', 'flex', 'flex-col', 'gap-1'],
-      design: {
-        sizing: { isActive: true, width: '100%' },
-        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '0.25rem' },
-      },
-      children: [],
-    },
+    description: 'Native text input with a label wrapper. Set the field type/placeholder/name via update_layer_settings.',
+    useBlocksTemplate: true,
   },
   textarea: {
     name: 'Textarea',
-    description: 'Multi-line text area',
-    template: {
-      name: 'div',
-      classes: ['w-full', 'flex', 'flex-col', 'gap-1'],
-      design: {
-        sizing: { isActive: true, width: '100%' },
-        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '0.25rem' },
-      },
-      children: [],
-    },
+    description: 'Native multi-line textarea with a label wrapper.',
+    useBlocksTemplate: true,
   },
   htmlEmbed: {
     name: 'Code Embed',
