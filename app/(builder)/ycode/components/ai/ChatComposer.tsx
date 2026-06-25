@@ -125,9 +125,11 @@ export default function ChatComposer({
   const editorRef = useRef<Editor | null>(null);
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  // The selection present when pick mode was armed; we wait for the *next* canvas
-  // / sidebar selection before turning it into a pill.
+  // Pick mode clears the canvas selection on arm (baseline becomes empty) so the
+  // *next* click — even on the previously selected layer — registers as a change
+  // and becomes a pill. The prior selection is restored if picking is canceled.
   const pickBaselineRef = useRef<string[]>([]);
+  const prevSelectionRef = useRef<string[]>([]);
   const layerMentionsRef = useRef(layerMentions);
   layerMentionsRef.current = layerMentions;
 
@@ -322,14 +324,20 @@ export default function ChatComposer({
     event.target.value = '';
   };
 
-  // Arm/disarm pick mode. Snapshot the current selection so we only react to the
-  // user's *next* pick, not whatever happened to be selected when they clicked.
-  const togglePicking = useCallback(() => {
-    setIsPicking((prev) => {
-      const next = !prev;
-      if (next) pickBaselineRef.current = useEditorStore.getState().selectedLayerIds;
-      return next;
-    });
+  // Arm pick mode: remember and clear the current selection so any subsequent
+  // layer click (including the one that was already selected) counts as a pick.
+  const armPicking = useCallback(() => {
+    const store = useEditorStore.getState();
+    prevSelectionRef.current = store.selectedLayerIds;
+    pickBaselineRef.current = [];
+    store.clearSelection();
+    setIsPicking(true);
+  }, []);
+
+  // Cancel pick mode without picking: restore the selection we cleared on arm.
+  const cancelPicking = useCallback(() => {
+    useEditorStore.getState().setSelectedLayerIds(prevSelectionRef.current);
+    setIsPicking(false);
   }, []);
 
   // While armed, the next non-empty canvas / sidebar selection becomes pill(s).
@@ -352,11 +360,11 @@ export default function ChatComposer({
   useEffect(() => {
     if (!isPicking) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsPicking(false);
+      if (event.key === 'Escape') cancelPicking();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isPicking]);
+  }, [isPicking, cancelPicking]);
 
   // Mirror pick mode into the editor store so the canvas can show teal outlines
   // and a crosshair cursor while the user is choosing a layer to reference.
@@ -411,7 +419,7 @@ export default function ChatComposer({
             <Button
               size="xs"
               variant={isPicking ? 'teal' : 'ghost'}
-              onClick={togglePicking}
+              onClick={isPicking ? cancelPicking : armPicking}
               aria-label="Reference a layer"
               aria-pressed={isPicking}
               title={isPicking ? 'Select a layer in the canvas or layers panel' : 'Reference a layer'}
