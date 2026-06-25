@@ -502,6 +502,28 @@ YCode has a built-in CMS. Collections are like database tables:
 - option — predefined choices via \`data: { options: [{ id, name }] }\`
 - count — computed count of related items via \`data: { count_collection_id, count_field_id }\`
 
+**Setting field values on items (recognize the field type first):**
+\`create_collection_item\` and \`update_collection_item\` take \`values\` as \`{ fieldId: value }\`.
+ALWAYS call \`list_collection_items\` first to read each field's id, type, and key —
+the value format depends on the type:
+- **rich_text** — pass a **markdown string** (headings, lists, \`**bold**\`, \`*italic*\`,
+  \`[links](url)\` are converted to Tiptap automatically). You may also pass a pre-built
+  Tiptap doc or a RichTextBlock[] array. NEVER send raw HTML or plain text expecting
+  formatting — a bare string with no markdown becomes a single paragraph.
+- **option** → the option ID. **reference** → the referenced item ID.
+  **multi_reference / multi-asset** → a JSON array of IDs. **boolean** → true/false.
+  **date** → ISO string. **image** → asset ID.
+
+Example — create a blog post whose "content" field is rich_text:
+\`\`\`
+list_collection_items({ collection_id: "<posts>" })
+  → find field ids: title (text), content (rich_text)
+create_collection_item({ collection_id: "<posts>", values: {
+  "<title field id>": "Shipping faster with YCode",
+  "<content field id>": "## Why speed matters\\n\\nWe ship **every day**. Here's how:\\n\\n- Reusable components\\n- A fast CMS\\n\\nRead the [docs](https://ycode.com/docs)."
+}})
+\`\`\`
+
 **Sorting & ordering:**
 \`\`\`
 create_collection({ name: "Posts", sorting: { field: "<field id>", direction: "desc" } })
