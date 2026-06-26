@@ -4,6 +4,7 @@ import { compactToolResult } from '@/lib/agent/tools/compact-result';
 import { getAgentToolMap, getAgentTools } from '@/lib/agent/tools/registry';
 import { getCachedLayers } from '@/lib/mcp/page-layers';
 
+import type { Layer } from '@/types';
 import type {
   AgentContentBlock,
   AgentMessage,
@@ -40,6 +41,10 @@ export type RuntimeEvent =
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; name: string; ok: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number }
+  // Authoritative post-turn snapshot of a page the agent edited, computed from
+  // the server cache so the client never has to race the realtime broadcast to
+  // build the Changes card or screenshot the right state.
+  | { type: 'page_changed'; pageId: string; layerCount: number; layers: Layer[] }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -62,6 +67,27 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   const usage = new UsageTotals();
   let totalToolCalls = 0;
   let noOpCorrectionUsed = false;
+
+  // Per-page "before" signatures (captured the first time a tool touches a page,
+  // before it runs) and the set of pages the agent edited. Used to emit an
+  // authoritative page_changed event per page at the end of the run.
+  const beforeByPage = new Map<string, Map<string, string>>();
+  const editedPageIds = new Set<string>();
+
+  /** Stream one authoritative page_changed event per edited page, diffing the
+   * post-turn cache against the captured before-snapshot. */
+  async function* emitPageChanges(): AsyncIterable<RuntimeEvent> {
+    for (const pageId of editedPageIds) {
+      try {
+        const after = await getCachedLayers(pageId);
+        const before = beforeByPage.get(pageId) ?? new Map<string, string>();
+        const layerCount = countChangedLayers(before, layerSignatures(after));
+        yield { type: 'page_changed', pageId, layerCount, layers: after };
+      } catch (error) {
+        console.error('[ai-agent] failed to compute page change snapshot:', error);
+      }
+    }
+  }
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn += 1) {
     const assistantBlocks: AgentContentBlock[] = [];
@@ -105,6 +131,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
         continue;
       }
       usage.log(model, turn + 1);
+      yield* emitPageChanges();
       yield usage.toEvent();
       yield { type: 'done', stopReason };
       return;
@@ -112,6 +139,18 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
 
     const results: AgentToolResultBlock[] = [];
     for (const call of toolUses) {
+      // Snapshot each touched page's pre-edit layer tree once, before the tool
+      // mutates it, so we can diff it after the run for the Changes card.
+      for (const pageId of collectPageIdsFromInput(call.input)) {
+        editedPageIds.add(pageId);
+        if (!beforeByPage.has(pageId)) {
+          try {
+            beforeByPage.set(pageId, layerSignatures(await getCachedLayers(pageId)));
+          } catch (error) {
+            console.error('[ai-agent] failed to snapshot page before edit:', error);
+          }
+        }
+      }
       const result = await executeTool(toolMap, call);
       results.push(result);
       yield { type: 'tool_result', id: call.id, name: call.name, ok: !result.isError };
@@ -121,6 +160,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   }
 
   usage.log(model, MAX_TOOL_TURNS);
+  yield* emitPageChanges();
   yield usage.toEvent();
   yield { type: 'error', message: `Reached the tool-call limit (${MAX_TOOL_TURNS}) without finishing.` };
 }
@@ -300,6 +340,51 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
     if (predicate(items[index])) return index;
   }
   return -1;
+}
+
+/**
+ * Stable per-node signature (excludes `children` so each layer is compared on
+ * its own, not rolled up through its descendants). Mirrors the client helper so
+ * the server and client count "changed layers" the same way.
+ */
+function layerSignatures(layers: Layer[], map = new Map<string, string>()): Map<string, string> {
+  for (const layer of layers) {
+    const { children, ...rest } = layer;
+    map.set(layer.id, JSON.stringify(rest));
+    if (children) layerSignatures(children, map);
+  }
+  return map;
+}
+
+/** Recursively collect every `page_id` referenced by a tool call's input
+ * (handles nested `operations` arrays from `batch_operations`). */
+function collectPageIdsFromInput(input: unknown): string[] {
+  const ids = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === 'page_id' && typeof child === 'string') {
+          ids.add(child);
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(input);
+  return [...ids];
+}
+
+/** Diff two signature maps and count how many layers in `after` differ from
+ * (or didn't exist in) `before`. */
+function countChangedLayers(before: Map<string, string>, after: Map<string, string>): number {
+  let count = 0;
+  for (const [layerId, sig] of after) {
+    if (before.get(layerId) !== sig) count += 1;
+  }
+  return count;
 }
 
 function buildSystemPrompt(context?: AgentEditorContext): string {

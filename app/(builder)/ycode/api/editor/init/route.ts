@@ -29,22 +29,54 @@ import { getMapboxAccessToken, getGoogleMapsEmbedApiKey } from '@/lib/map-server
  */
 export async function GET() {
   try {
-    // Load all data in parallel (only drafts for editor)
-    const [pages, drafts, folders, components, styles, settings, collections, locales, assets, assetFolders, fonts, resolvedMapboxToken, resolvedGoogleMapsEmbedKey] = await Promise.all([
-      getAllDraftPages(),
-      getAllDraftLayers(),
-      getAllPageFolders({ is_published: false }),
-      getAllComponents(),
-      getAllStyles(),
-      getAllSettings(),
-      getAllCollections(),
-      getAllLocales(),
-      getAllAssets(),
-      getAllAssetFolders(false),
-      getAllFonts(),
-      getMapboxAccessToken(),
-      getGoogleMapsEmbedApiKey(),
-    ]);
+    // Load all data in parallel (only drafts for editor). Named so a single
+    // failing fetch is logged by name instead of being flattened into a generic
+    // 500 (temporary diagnostic for the "Failed to load editor data" error).
+    const tasks = {
+      pages: getAllDraftPages(),
+      drafts: getAllDraftLayers(),
+      folders: getAllPageFolders({ is_published: false }),
+      components: getAllComponents(),
+      styles: getAllStyles(),
+      settings: getAllSettings(),
+      collections: getAllCollections(),
+      locales: getAllLocales(),
+      assets: getAllAssets(),
+      assetFolders: getAllAssetFolders(false),
+      fonts: getAllFonts(),
+      mapbox: getMapboxAccessToken(),
+      googleMaps: getGoogleMapsEmbedApiKey(),
+    } as const;
+
+    const settled = await Promise.allSettled(Object.values(tasks));
+    const keys = Object.keys(tasks);
+    const failures = settled
+      .map((result, index) => ({ key: keys[index], result }))
+      .filter((entry): entry is { key: string; result: PromiseRejectedResult } => entry.result.status === 'rejected');
+
+    if (failures.length > 0) {
+      for (const { key, result } of failures) {
+        console.error(`[Editor init] "${key}" failed:`, result.reason);
+      }
+      throw new Error(`Editor init failed: ${failures.map((f) => f.key).join(', ')}`);
+    }
+
+    const [pages, drafts, folders, components, styles, settings, collections, locales, assets, assetFolders, fonts, resolvedMapboxToken, resolvedGoogleMapsEmbedKey] =
+      settled.map((result) => (result as PromiseFulfilledResult<unknown>).value) as [
+        Awaited<typeof tasks.pages>,
+        Awaited<typeof tasks.drafts>,
+        Awaited<typeof tasks.folders>,
+        Awaited<typeof tasks.components>,
+        Awaited<typeof tasks.styles>,
+        Awaited<typeof tasks.settings>,
+        Awaited<typeof tasks.collections>,
+        Awaited<typeof tasks.locales>,
+        Awaited<typeof tasks.assets>,
+        Awaited<typeof tasks.assetFolders>,
+        Awaited<typeof tasks.fonts>,
+        Awaited<typeof tasks.mapbox>,
+        Awaited<typeof tasks.googleMaps>,
+      ];
 
     // Inject app-sourced tokens into settings so they're available via settingsByKey
     const enrichedSettings = [...settings];

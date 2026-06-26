@@ -166,6 +166,7 @@ type RuntimeEvent =
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; name: string; ok: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number }
+  | { type: 'page_changed'; pageId: string; layerCount: number; layers: Layer[] }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -186,25 +187,13 @@ const turnCheckpoints = new Map<string, { pageId: string; layers: Layer[] }>();
 const turnEditedPageIds = new Set<string>();
 
 /**
- * Per-turn "before" snapshots of each edited page's layer tree, keyed by page id
- * then layer id -> signature. Captured on the first tool call that touches a
- * page (before its draft is mutated) and diffed against the post-turn draft to
- * count how many layers the turn actually changed (the Changes card). Reset at
- * the start of every runTurn so the main turn and each review pass get a fresh
- * baseline.
+ * Per-turn Changes-card entries, keyed by page id. Populated from the
+ * authoritative `page_changed` events the server streams at the end of a turn
+ * (it diffs its own cache, so the client never races the realtime broadcast).
+ * Reset at the start of every runTurn so the main turn and each review pass get
+ * a fresh baseline.
  */
-const turnPageBefore = new Map<string, Map<string, string>>();
-
-/** Stable per-node signature (excludes children so each layer is compared on its
- * own, not rolled up through its descendants). */
-function layerSignatures(layers: Layer[], map = new Map<string, string>()): Map<string, string> {
-  for (const layer of layers) {
-    const { children, ...rest } = layer;
-    map.set(layer.id, JSON.stringify(rest));
-    if (children) layerSignatures(children, map);
-  }
-  return map;
-}
+const turnChanges = new Map<string, TurnChange>();
 
 /** How many automatic review passes to run after a user turn. */
 const MAX_REVIEW_DEPTH = 1;
@@ -366,7 +355,7 @@ export const useAiChatStore = create<AiChatStore>()(
         if (!trimmed && images.length === 0) return;
 
         // Fresh per-turn baseline for the Changes card and "Thought for Ns".
-        turnPageBefore.clear();
+        turnChanges.clear();
         const startedAt = Date.now();
 
         const isReview = reviewDepth > 0;
@@ -459,35 +448,19 @@ export const useAiChatStore = create<AiChatStore>()(
 
         // Summarize this turn: how long it ran ("Thought for Ns") and which pages
         // it changed, with a per-page count of affected layers (the Changes card).
-        // We diff each edited page's post-turn draft against the "before" snapshot
-        // captured on the first tool call that touched it.
-        const drafts = usePagesStore.getState().draftsByPageId;
-        const pages = usePagesStore.getState().pages;
-        const changes: TurnChange[] = [];
-        for (const [changedPageId, before] of turnPageBefore) {
-          const after = drafts[changedPageId]?.layers;
-          if (!after) continue;
-          const afterSigs = layerSignatures(after);
-          let layerCount = 0;
-          for (const [layerId, sig] of afterSigs) {
-            if (before.get(layerId) !== sig) layerCount += 1;
-          }
-          if (layerCount > 0) {
-            const pageName = pages.find((p) => p.id === changedPageId)?.name ?? 'Page';
-            changes.push({ pageId: changedPageId, pageName, layerCount });
-          }
-        }
+        // The server already diffed its authoritative cache and streamed one
+        // page_changed event per edited page, so we just read the accumulator.
+        const changes = [...turnChanges.values()];
         patchAssistant((m) => ({
           ...m,
           thinkingMs: Date.now() - startedAt,
           changes: changes.length > 0 ? changes : undefined,
         }));
 
-        // Visual self-review: if this turn changed the page, screenshot it and let
-        // the agent critique and fix its own work (one pass).
+        // Visual self-review: if this turn actually changed layers, screenshot the
+        // edited page and let the agent critique and fix its own work (one pass).
         if (get().autoReview && reviewDepth < MAX_REVIEW_DEPTH && !signal.aborted) {
-          const completed = get().messages.find((m) => m.id === assistantMessage.id);
-          const changedVisuals = completed?.toolCalls.some((call) => isVisualMutation(call.name)) ?? false;
+          const changedVisuals = changes.length > 0;
           // Review the page the agent actually edited, not whatever is open on the
           // canvas — otherwise the agent critiques the wrong page and "fixes" it.
           const reviewPageId = resolveReviewPageId(pageId);
@@ -764,16 +737,11 @@ function applyEvent(
         syncAiActiveLayerIds();
       }
       // Remember which page(s) the agent edited so the visual self-review targets
-      // the right page instead of whatever is currently open on the canvas, and
-      // snapshot each page's layer tree once (before the edit lands in the draft)
-      // so we can count how many layers actually changed for the Changes card.
+      // the right page instead of whatever is currently open on the canvas. The
+      // authoritative Changes-card counts come later from page_changed events.
       if (isVisualMutation(event.name)) {
         for (const pageId of collectPageIds(event.input)) {
           turnEditedPageIds.add(pageId);
-          if (!turnPageBefore.has(pageId)) {
-            const layers = usePagesStore.getState().draftsByPageId[pageId]?.layers;
-            if (layers) turnPageBefore.set(pageId, layerSignatures(layers));
-          }
         }
       }
       patchAssistant((m) => {
@@ -799,6 +767,20 @@ function applyEvent(
         ),
       }));
       break;
+    case 'page_changed': {
+      // Authoritative post-turn snapshot from the server. Force the client draft
+      // in sync immediately (no-op if this page has no loaded draft) so the
+      // canvas and the review screenshot reflect the edit without waiting on the
+      // realtime broadcast. Record the per-page affected layer count for the card.
+      const pagesStore = usePagesStore.getState();
+      pagesStore.setDraftLayers(event.pageId, event.layers);
+      turnEditedPageIds.add(event.pageId);
+      if (event.layerCount > 0) {
+        const pageName = pagesStore.pages.find((p) => p.id === event.pageId)?.name ?? 'Page';
+        turnChanges.set(event.pageId, { pageId: event.pageId, pageName, layerCount: event.layerCount });
+      }
+      break;
+    }
     case 'usage':
       set((state) => ({
         sessionUsage: {
