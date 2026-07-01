@@ -89,6 +89,10 @@ interface EditorActions {
   canRedo: () => boolean;
   setInteractionHighlights: (triggerIds: string[], targetIds: string[]) => void;
   setAiActiveLayerIds: (ids: string[]) => void;
+  /** Set the collections the AI is currently working on (CMS shimmer). */
+  setAiActiveCollectionIds: (ids: string[]) => void;
+  /** Set the collection items the AI is currently editing (CMS row shimmer). */
+  setAiActiveItemIds: (ids: string[]) => void;
   /** Flag newly-arrived remote layers so the canvas can animate their entrance. */
   markLayersEntering: (ids: string[]) => void;
   /** Set the page the AI is actively building (drives the canvas build skeleton). */
@@ -147,6 +151,10 @@ interface EditorStoreWithHistory extends EditorState {
   interactionTargetLayerIds: string[];
   /** Layer IDs the AI agent is currently editing (drives the canvas shimmer overlay) */
   aiActiveLayerIds: string[];
+  /** Collection IDs the AI agent is currently working on (drives the CMS shimmer) */
+  aiActiveCollectionIds: string[];
+  /** Collection item IDs the AI agent is currently editing (drives the CMS row shimmer) */
+  aiActiveItemIds: string[];
   /** Outermost layer IDs that just arrived from a remote source (AI/MCP/collaborator),
    * consumed by the canvas to play a staggered entrance animation. */
   canvasEnterLayerIds: string[];
@@ -260,6 +268,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   interactionTriggerLayerIds: [],
   interactionTargetLayerIds: [],
   aiActiveLayerIds: [],
+  aiActiveCollectionIds: [],
+  aiActiveItemIds: [],
   canvasEnterLayerIds: [],
   canvasEnterNonce: 0,
   aiBuildingPageId: null,
@@ -573,6 +583,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return state;
     }
     return { aiActiveLayerIds: ids };
+  }),
+
+  setAiActiveCollectionIds: (ids) => set((state) => {
+    if (state.aiActiveCollectionIds.length === ids.length &&
+        state.aiActiveCollectionIds.every((id, i) => id === ids[i])) {
+      return state;
+    }
+    return { aiActiveCollectionIds: ids };
+  }),
+
+  setAiActiveItemIds: (ids) => set((state) => {
+    if (state.aiActiveItemIds.length === ids.length &&
+        state.aiActiveItemIds.every((id, i) => id === ids[i])) {
+      return state;
+    }
+    return { aiActiveItemIds: ids };
   }),
 
   markLayersEntering: (ids) => set((state) => {

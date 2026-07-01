@@ -92,6 +92,37 @@
   mask-composite: exclude;
 }
 
+/* Shimmering ring for in-DOM elements the AI agent is actively working on — used
+   in the CMS for collection rows, the items area, and individual item rows.
+   Unlike .ai-activity-outline (an absolutely-positioned canvas overlay) this is
+   an inset ::after pseudo-element, so any element works as long as it is
+   positioned. Reuses the same mask "gradient border" + shimmer animation. */
+.ai-activity-shimmer {
+  position: relative;
+}
+.ai-activity-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    linear-gradient(110deg, transparent 30%, rgba(196, 181, 253, 0.95) 50%, transparent 70%),
+    rgba(139, 92, 246, 0.4);
+  background-size: 220% 100%, 100% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);

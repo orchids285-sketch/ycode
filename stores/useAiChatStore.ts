@@ -7,6 +7,7 @@ import { DEFAULT_AGENT_MODEL } from '@/lib/agent/models';
 import { syncLayerAssets } from '@/lib/canvas-asset-sync';
 import { findAddedLayerIds } from '@/lib/layer-utils';
 import { useComponentsStore } from '@/stores/useComponentsStore';
+import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
 import type { Layer } from '@/types';
@@ -643,12 +644,17 @@ export const useAiChatStore = create<AiChatStore>()(
           const pinnedPageId = useEditorStore.getState().currentPageId ?? null;
           turnEditedPageIds.clear();
           turnTouchedLayerIds.clear();
+          turnTouchedCollectionIds.clear();
+          turnTouchedItemIds.clear();
 
           set({ status: 'streaming', error: null });
           try {
             await runTurn(text, attachment, 0, pinnedPageId);
           } finally {
             abortController = null;
+            // Pull any CMS changes into the store before clearing the shimmer so
+            // the user sees the updated collection data once activity settles.
+            await refreshTouchedCollections();
             clearAiActiveLayerIds();
             // Fold the just-updated messages into the history list so the chat
             // dropdown shows an up-to-date title and timestamp.
@@ -777,6 +783,46 @@ function collectPageIds(input: unknown): string[] {
   return [...ids];
 }
 
+/** Mutating CMS tools whose `collection_id` / `item_id` inputs indicate the AI is
+ * actively working inside the CMS, so the matching collection (and item rows) can
+ * shimmer. Read-only tools (list_/get_) are intentionally excluded. */
+const CMS_COLLECTION_TOOL_NAMES = new Set([
+  'create_collection',
+  'update_collection',
+  'delete_collection',
+  'add_collection_field',
+  'update_collection_field',
+  'delete_collection_field',
+  'reorder_collection_fields',
+  'create_collection_item',
+  'update_collection_item',
+  'delete_collection_item',
+  'set_collection_item_order',
+]);
+
+/** Collect `collection_id` / `item_id` values from a CMS tool call's input. */
+function collectCmsIds(input: unknown): { collectionIds: string[]; itemIds: string[] } {
+  const collectionIds = new Set<string>();
+  const itemIds = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof child === 'string' && key === 'collection_id') {
+          collectionIds.add(child);
+        } else if (typeof child === 'string' && key === 'item_id') {
+          itemIds.add(child);
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(input);
+  return { collectionIds: [...collectionIds], itemIds: [...itemIds] };
+}
+
 /**
  * Every layer the agent has touched during the current turn. Accumulated across
  * all tool calls and kept lit until the turn ends, so the user clearly sees the
@@ -785,17 +831,58 @@ function collectPageIds(input: unknown): string[] {
  */
 const turnTouchedLayerIds = new Set<string>();
 
+/** Collections / items the agent has touched this turn — kept lit in the CMS view
+ * until the turn ends, mirroring the canvas layer shimmer. */
+const turnTouchedCollectionIds = new Set<string>();
+const turnTouchedItemIds = new Set<string>();
+
 /** Push every layer touched this turn to the editor store so the canvas overlay
  * can shimmer the full set of layers the agent is working on. */
 function syncAiActiveLayerIds(): void {
   useEditorStore.getState().setAiActiveLayerIds([...turnTouchedLayerIds]);
 }
 
+/** Push every collection/item touched this turn to the editor store so the CMS
+ * view can shimmer the collections (and item rows) the agent is working on. */
+function syncAiActiveCmsIds(): void {
+  const editor = useEditorStore.getState();
+  editor.setAiActiveCollectionIds([...turnTouchedCollectionIds]);
+  editor.setAiActiveItemIds([...turnTouchedItemIds]);
+}
+
+/** Reload the CMS data for every collection the agent touched this turn so the
+ * changes (new/updated/deleted items, renamed collections) appear without a
+ * manual refresh. Best-effort: failures are swallowed so they never block the
+ * turn from settling. */
+async function refreshTouchedCollections(): Promise<void> {
+  if (turnTouchedCollectionIds.size === 0) return;
+  const ids = [...turnTouchedCollectionIds];
+  const collectionsStore = useCollectionsStore.getState();
+  // Refresh the collection list/counts once (covers created/deleted/renamed
+  // collections), then reload fields + items for each touched collection.
+  try {
+    await collectionsStore.loadCollections();
+  } catch {
+    // Ignore — per-collection reloads below still refresh the visible data.
+  }
+  await Promise.allSettled(
+    ids.map(async (collectionId) => {
+      const q = useCollectionsStore.getState().lastItemsQuery[collectionId] || {};
+      await useCollectionsStore.getState().loadFields(collectionId);
+      await useCollectionsStore.getState().loadItems(collectionId, q.page, q.limit, q.sortBy, q.sortOrder);
+    }),
+  );
+}
+
 /** Clear all AI activity highlights (turn ended or aborted). */
 function clearAiActiveLayerIds(): void {
   turnTouchedLayerIds.clear();
+  turnTouchedCollectionIds.clear();
+  turnTouchedItemIds.clear();
   const editor = useEditorStore.getState();
   editor.setAiActiveLayerIds([]);
+  editor.setAiActiveCollectionIds([]);
+  editor.setAiActiveItemIds([]);
   editor.setAiBuildingPageId(null);
 }
 
@@ -817,6 +904,17 @@ function applyEvent(
       if (layerIds.length > 0) {
         for (const id of layerIds) turnTouchedLayerIds.add(id);
         syncAiActiveLayerIds();
+      }
+      // CMS shimmer: light up the collection (and any item rows) the agent is
+      // working on. Only mutating CMS tools count — read-only listing tools and
+      // canvas binding tools that also carry collection_id are excluded.
+      if (CMS_COLLECTION_TOOL_NAMES.has(event.name)) {
+        const { collectionIds, itemIds } = collectCmsIds(event.input);
+        if (collectionIds.length > 0 || itemIds.length > 0) {
+          for (const id of collectionIds) turnTouchedCollectionIds.add(id);
+          for (const id of itemIds) turnTouchedItemIds.add(id);
+          syncAiActiveCmsIds();
+        }
       }
       // Remember which page(s) the agent edited so the visual self-review targets
       // the right page instead of whatever is currently open on the canvas. The
