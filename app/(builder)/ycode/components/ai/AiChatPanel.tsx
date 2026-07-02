@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -487,7 +487,11 @@ function EmptyState({ onPick, disabled }: { onPick: (text: string) => void; disa
   );
 }
 
-function MessageBubble({
+// Memoized so a streamed token (which replaces the `messages` array reference)
+// only re-renders the one message whose object actually changed, not the whole
+// transcript. Finished messages keep a stable reference and the revert/redo
+// callbacks are stable Zustand actions, so the default shallow compare is safe.
+const MessageBubble = memo(function MessageBubble({
   message,
   isStreaming,
   onRevert,
@@ -588,7 +592,7 @@ function MessageBubble({
       {!isActivelyStreaming && plainText && <MarkdownText text={plainText} />}
     </div>
   );
-}
+});
 
 function ToolCallRow({ call }: { call: ChatToolCall }) {
   return (
