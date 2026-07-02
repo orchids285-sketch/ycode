@@ -10,7 +10,7 @@ import { useComponentsStore } from '@/stores/useComponentsStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
-import type { Layer } from '@/types';
+import type { Component, ComponentVariant, Layer } from '@/types';
 
 /** A tool the agent invoked during an assistant turn, shown as a status line. */
 export interface ChatToolCall {
@@ -171,6 +171,7 @@ type RuntimeEvent =
   | { type: 'tool_result'; id: string; name: string; ok: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number }
   | { type: 'page_changed'; pageId: string; layerCount: number; layers: Layer[]; layersBefore?: Layer[] }
+  | { type: 'component_changed'; componentId: string; name: string; variants: ComponentVariant[] }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -395,6 +396,11 @@ export const useAiChatStore = create<AiChatStore>()(
         // sends the message and threaded through review passes so mid-run
         // navigation can't drift the edit/review target to the wrong page.
         pageId: string | null,
+        // Component context pinned for the turn: when the user is editing a
+        // component, the agent needs to know which component/variant so "this
+        // component" resolves and edits go through the component tools.
+        componentId: string | null,
+        variantId: string | null,
       ): Promise<void> => {
         const trimmed = text.trim();
         const images = attachment?.images ?? [];
@@ -474,6 +480,8 @@ export const useAiChatStore = create<AiChatStore>()(
             body: JSON.stringify({
               messages: [...history, { role: 'user', content: userContent }],
               pageId,
+              componentId,
+              variantId,
               selectedLayers: attachment?.selectedLayers ?? [],
               mentions: attachment?.mentions ?? [],
               referenceUrls: attachment?.referenceUrls ?? [],
@@ -537,7 +545,9 @@ export const useAiChatStore = create<AiChatStore>()(
           if (changedVisuals && reviewPageId) {
             const shot = await capturePageImage(reviewPageId);
             if (shot && !signal.aborted) {
-              await runTurn(buildReviewPrompt(reviewPageId), { images: [shot] }, reviewDepth + 1, reviewPageId);
+              // The self-review screenshots a page, so it runs with page context
+              // only — never carry the component context into the review pass.
+              await runTurn(buildReviewPrompt(reviewPageId), { images: [shot] }, reviewDepth + 1, reviewPageId, null, null);
             }
           }
         }
@@ -641,9 +651,13 @@ export const useAiChatStore = create<AiChatStore>()(
           const hasContent = text.trim().length > 0 || (attachment?.images?.length ?? 0) > 0;
           if (!hasContent || get().status !== 'idle') return;
 
-          // Pin the page context for the whole turn (including review passes) so
-          // mid-run navigation can't drift edits/review to the wrong page.
-          const pinnedPageId = useEditorStore.getState().currentPageId ?? null;
+          // Pin the page + component context for the whole turn (including review
+          // passes) so mid-run navigation can't drift edits/review to the wrong
+          // target. When a component is open, the agent is told to edit it.
+          const editorState = useEditorStore.getState();
+          const pinnedPageId = editorState.currentPageId ?? null;
+          const pinnedComponentId = editorState.editingComponentId ?? null;
+          const pinnedVariantId = editorState.editingComponentVariantId ?? null;
           turnEditedPageIds.clear();
           turnTouchedLayerIds.clear();
           turnTouchedCollectionIds.clear();
@@ -651,7 +665,7 @@ export const useAiChatStore = create<AiChatStore>()(
 
           set({ status: 'streaming', error: null });
           try {
-            await runTurn(text, attachment, 0, pinnedPageId);
+            await runTurn(text, attachment, 0, pinnedPageId, pinnedComponentId, pinnedVariantId);
           } finally {
             abortController = null;
             // Pull any CMS changes into the store before clearing the shimmer so
@@ -785,6 +799,27 @@ function collectPageIds(input: unknown): string[] {
   return [...ids];
 }
 
+/** Recursively collect every `component_id` referenced by a tool call's input
+ * (handles nested `operations` arrays from update_component_layers). */
+function collectComponentIds(input: unknown): string[] {
+  const ids = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof child === 'string' && key === 'component_id') {
+          ids.add(child);
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(input);
+  return [...ids];
+}
+
 /** Mutating CMS tools whose `collection_id` / `item_id` inputs indicate the AI is
  * actively working inside the CMS, so the matching collection (and item rows) can
  * shimmer. Read-only tools (list_/get_) are intentionally excluded. */
@@ -886,6 +921,7 @@ function clearAiActiveLayerIds(): void {
   editor.setAiActiveCollectionIds([]);
   editor.setAiActiveItemIds([]);
   editor.setAiBuildingPageId(null);
+  editor.setAiBuildingComponentId(null);
 }
 
 function applyEvent(
@@ -916,6 +952,19 @@ function applyEvent(
           for (const id of collectionIds) turnTouchedCollectionIds.add(id);
           for (const id of itemIds) turnTouchedItemIds.add(id);
           syncAiActiveCmsIds();
+        }
+      }
+      // When the agent touches a component, flag it so the canvas auto-opens
+      // that component's edit mode (mirrors aiBuildingPageId). Opening as soon
+      // as the agent inspects the component keeps the user watching the right
+      // place; the first component wins for the turn.
+      {
+        const componentIds = collectComponentIds(event.input);
+        if (componentIds.length > 0) {
+          const editor = useEditorStore.getState();
+          if (!editor.aiBuildingComponentId) {
+            editor.setAiBuildingComponentId(componentIds[0], editor.editingComponentVariantId ?? null);
+          }
         }
       }
       // Remember which page(s) the agent edited so the visual self-review targets
@@ -1004,6 +1053,28 @@ function applyEvent(
         turnCheckpointPages.set(event.pageId, event.layersBefore);
       }
       turnCheckpointPagesAfter.set(event.pageId, event.layers);
+      break;
+    }
+    case 'component_changed': {
+      // Authoritative post-turn component snapshot. Rebuild the client drafts so
+      // the open component canvas reflects the AI's edit without a reload (the
+      // realtime broadcast ignores the acting user's own edits). Merge onto the
+      // existing component record so unrelated fields (variables etc.) survive.
+      const componentsStore = useComponentsStore.getState();
+      const existing = componentsStore.getComponentById(event.componentId);
+      const merged: Component = {
+        ...(existing as Component),
+        id: event.componentId,
+        name: event.name,
+        variants: event.variants,
+        layers: event.variants[0]?.layers ?? existing?.layers ?? [],
+      };
+      componentsStore.applyServerComponent(merged);
+      // Load any assets referenced by the new component layers so they show
+      // without a manual refresh.
+      for (const variant of event.variants) {
+        void syncLayerAssets(variant.layers ?? []);
+      }
       break;
     }
     case 'usage':

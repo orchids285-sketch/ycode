@@ -97,6 +97,9 @@ interface EditorActions {
   markLayersEntering: (ids: string[]) => void;
   /** Set the page the AI is actively building (drives the canvas build skeleton). */
   setAiBuildingPageId: (pageId: string | null) => void;
+  /** Set the component the AI is actively editing (drives auto-opening component
+   * edit mode). Pass the variant it's editing so the right variant opens. */
+  setAiBuildingComponentId: (componentId: string | null, variantId?: string | null) => void;
   setActiveInteraction: (triggerId: string | null, targetIds: string[]) => void;
   clearActiveInteraction: () => void;
   openCollectionItemSheet: (collectionId: string, itemId: string) => void;
@@ -164,6 +167,10 @@ interface EditorStoreWithHistory extends EditorState {
   /** Page the AI is currently building. When this matches the open page and the
    * canvas is still empty, a skeleton placeholder is shown for instant feedback. */
   aiBuildingPageId: string | null;
+  /** Component the AI is currently editing. Drives auto-opening component edit
+   * mode so the user watches the changes happen in the right place. */
+  aiBuildingComponentId: string | null;
+  aiBuildingComponentVariantId: string | null;
   activeInteractionTriggerLayerId: string | null;
   activeInteractionTargetLayerIds: string[];
   activeTextStyleKey: string | null; // Currently active text style (e.g., 'bold', 'italic')
@@ -273,6 +280,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   canvasEnterLayerIds: [],
   canvasEnterNonce: 0,
   aiBuildingPageId: null,
+  aiBuildingComponentId: null,
+  aiBuildingComponentVariantId: null,
   activeInteractionTriggerLayerId: null,
   activeInteractionTargetLayerIds: [],
   activeTextStyleKey: null,
@@ -611,6 +620,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   setAiBuildingPageId: (pageId) => set((state) => (
     state.aiBuildingPageId === pageId ? state : { aiBuildingPageId: pageId }
+  )),
+
+  setAiBuildingComponentId: (componentId, variantId = null) => set((state) => (
+    state.aiBuildingComponentId === componentId && state.aiBuildingComponentVariantId === variantId
+      ? state
+      : { aiBuildingComponentId: componentId, aiBuildingComponentVariantId: variantId }
   )),
 
   setActiveInteraction: (triggerId, targetIds) => set({

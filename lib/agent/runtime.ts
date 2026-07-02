@@ -3,8 +3,9 @@ import { DEFAULT_MAX_TOKENS, MAX_HISTORY_CHARS, MAX_HISTORY_MESSAGES, MAX_TOOL_T
 import { compactToolResult } from '@/lib/agent/tools/compact-result';
 import { getAgentToolMap, getAgentTools } from '@/lib/agent/tools/registry';
 import { getCachedLayers } from '@/lib/mcp/page-layers';
+import { getComponentById } from '@/lib/repositories/componentRepository';
 
-import type { Layer } from '@/types';
+import type { Component, ComponentVariant, Layer } from '@/types';
 import type {
   AgentContentBlock,
   AgentMessage,
@@ -17,6 +18,10 @@ import type {
 /** Editor context threaded into the system prompt so "this section" resolves. */
 export interface AgentEditorContext {
   pageId?: string | null;
+  /** When the user is editing a component, its id/variant so "this component"
+   * resolves and edits are routed through the component tools. */
+  componentId?: string | null;
+  variantId?: string | null;
   selectedLayerIds?: string[];
   /** Selected layers with display names — preferred over bare ids when present. */
   selectedLayers?: Array<{ id: string; name?: string }>;
@@ -47,6 +52,10 @@ export type RuntimeEvent =
   // pre-turn tree (only sent when something changed) so the client can offer a
   // one-click Undo of the whole turn.
   | { type: 'page_changed'; pageId: string; layerCount: number; layers: Layer[]; layersBefore?: Layer[] }
+  // Authoritative post-turn snapshot of a component the agent edited, so the
+  // client can sync its component drafts (the open canvas) without racing the
+  // realtime broadcast, which ignores the acting user's own edits.
+  | { type: 'component_changed'; componentId: string; name: string; variants: ComponentVariant[] }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; message: string };
 
@@ -68,6 +77,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   // the request past the model's context window.
   const messages: AgentMessage[] = trimConversation([...options.messages]);
   await injectActivePageSnapshot(messages, options.context?.pageId);
+  await injectActiveComponentSnapshot(messages, options.context?.componentId, options.context?.variantId);
   const usage = new UsageTotals();
   let totalMutatingToolCalls = 0;
   let noOpCorrectionUsed = false;
@@ -79,6 +89,10 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   // the before-tree so the client can offer a one-click Undo.
   const beforeLayersByPage = new Map<string, Layer[]>();
   const editedPageIds = new Set<string>();
+
+  // Components the agent edited this turn. Used to stream an authoritative
+  // component_changed event per component so the client can sync its drafts.
+  const editedComponentIds = new Set<string>();
 
   /** Stream one authoritative page_changed event per edited page, diffing the
    * post-turn cache against the captured before-snapshot. */
@@ -97,6 +111,25 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
         };
       } catch (error) {
         console.error('[ai-agent] failed to compute page change snapshot:', error);
+      }
+    }
+  }
+
+  /** Stream one authoritative component_changed event per edited component,
+   * re-fetching the persisted component so the client can rebuild its drafts. */
+  async function* emitComponentChanges(): AsyncIterable<RuntimeEvent> {
+    for (const componentId of editedComponentIds) {
+      try {
+        const component = await getComponentById(componentId);
+        if (!component) continue;
+        yield {
+          type: 'component_changed',
+          componentId,
+          name: component.name,
+          variants: variantsOf(component),
+        };
+      } catch (error) {
+        console.error('[ai-agent] failed to compute component change snapshot:', error);
       }
     }
   }
@@ -162,6 +195,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
       }
       usage.log(model, turn + 1);
       yield* emitPageChanges();
+      yield* emitComponentChanges();
       yield usage.toEvent();
       yield { type: 'done', stopReason };
       return;
@@ -182,6 +216,13 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
           }
         }
       }
+      // Track edited components (mutating tools only) so we can stream an
+      // authoritative snapshot back for the client to sync its drafts.
+      if (!isReadOnlyTool(call.name)) {
+        for (const componentId of collectComponentIdsFromInput(call.input)) {
+          editedComponentIds.add(componentId);
+        }
+      }
       const result = await executeTool(toolMap, call);
       results.push(result);
       yield { type: 'tool_result', id: call.id, name: call.name, ok: !result.isError };
@@ -192,6 +233,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
 
   usage.log(model, MAX_TOOL_TURNS);
   yield* emitPageChanges();
+  yield* emitComponentChanges();
   yield usage.toEvent();
   yield { type: 'error', message: `Reached the tool-call limit (${MAX_TOOL_TURNS}) without finishing.` };
 }
@@ -442,6 +484,56 @@ async function injectActivePageSnapshot(
   messages[lastUserIndex] = { ...target, content: [block, ...target.content] };
 }
 
+/** A component's variants, backfilling a single "Default" entry for legacy
+ * components that pre-date the variants migration (mirrors the client). */
+function variantsOf(component: Component): ComponentVariant[] {
+  if (component.variants && component.variants.length > 0) return component.variants;
+  return [{ id: 'default', name: 'Default', layers: component.layers ?? [] }];
+}
+
+/**
+ * Attach a compact snapshot of the component the user is currently editing to
+ * the latest user turn, mirroring injectActivePageSnapshot. Gives the agent the
+ * component's live layer tree so "this component" resolves and it edits the
+ * right variant instead of guessing or touching the page.
+ */
+async function injectActiveComponentSnapshot(
+  messages: AgentMessage[],
+  componentId?: string | null,
+  variantId?: string | null,
+): Promise<void> {
+  if (!componentId) return;
+
+  let component: Component | null;
+  try {
+    component = await getComponentById(componentId);
+  } catch (error) {
+    console.error('[ai-agent] failed to load active component snapshot:', error);
+    return;
+  }
+  if (!component) return;
+
+  const variants = variantsOf(component);
+  const activeVariant = variants.find((v) => v.id === variantId) ?? variants[0];
+  // A component variant's `layers` is the same layer-tree shape as get_layers,
+  // so reuse that compaction to project it down to id/type/name/text/classes.
+  const snapshot = compactToolResult('get_layers', JSON.stringify(activeVariant.layers ?? []));
+
+  const lastUserIndex = findLastIndex(messages, (message) => message.role === 'user');
+  if (lastUserIndex === -1) return;
+
+  const block: AgentContentBlock = {
+    type: 'text',
+    text:
+      `Current contents of the "${component.name}" component (id: ${componentId}), variant "${activeVariant.name}" (id: ${activeVariant.id}) — this is the live source of truth right now. ` +
+      `Trust it over anything said earlier in this conversation; do not claim an element exists unless it appears here:\n` +
+      snapshot,
+  };
+
+  const target = messages[lastUserIndex];
+  messages[lastUserIndex] = { ...target, content: [block, ...target.content] };
+}
+
 /** Array.prototype.findLastIndex isn't available on every runtime target. */
 function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -485,6 +577,27 @@ function collectPageIdsFromInput(input: unknown): string[] {
   return [...ids];
 }
 
+/** Recursively collect every `component_id` referenced by a tool call's input
+ * (handles nested `operations` arrays from update_component_layers). */
+function collectComponentIdsFromInput(input: unknown): string[] {
+  const ids = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === 'component_id' && typeof child === 'string') {
+          ids.add(child);
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(input);
+  return [...ids];
+}
+
 /** Diff two signature maps and count how many layers in `after` differ from
  * (or didn't exist in) `before`. */
 function countChangedLayers(before: Map<string, string>, after: Map<string, string>): number {
@@ -497,7 +610,15 @@ function countChangedLayers(before: Map<string, string>, after: Map<string, stri
 
 function buildSystemPrompt(context?: AgentEditorContext): string {
   const lines: string[] = [];
-  if (context?.pageId) {
+  if (context?.componentId) {
+    lines.push(
+      `The user is currently editing the component with ID "${context.componentId}"${context.variantId ? ` (variant "${context.variantId}")` : ''}. ` +
+        `This is the active editing target — when they say "this component", "this", or "this section", they mean this component. ` +
+        `Apply edits to it with the component tools (get_component, update_component_layers), NOT the page tools — page/layer tools cannot edit a component definition. ` +
+        `A snapshot of this component's current layers is included with the user's message; treat it as the single source of truth and never claim an element exists unless it appears there. ` +
+        `Only edit a page instead if the user explicitly asks to work on a page.`,
+    );
+  } else if (context?.pageId) {
     lines.push(
       `The user is currently editing the page with ID "${context.pageId}". This is the active page — apply all edits here by default and when they refer to "this page", use this ID. ` +
         `A snapshot of this page's current contents is included with the user's message. Treat that snapshot as the single source of truth for what exists right now. ` +

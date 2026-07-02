@@ -54,6 +54,8 @@ const messageSchema = z.object({
 const bodySchema = z.object({
   messages: z.array(messageSchema).min(1),
   pageId: z.string().nullish(),
+  componentId: z.string().nullish(),
+  variantId: z.string().nullish(),
   selectedLayerIds: z.array(z.string()).optional(),
   selectedLayers: z.array(z.object({ id: z.string(), name: z.string().optional() })).optional(),
   mentions: z
@@ -121,6 +123,8 @@ export async function POST(request: Request): Promise<Response> {
           messages,
           context: {
             pageId: parsed.pageId,
+            componentId: parsed.componentId,
+            variantId: parsed.variantId,
             selectedLayerIds: parsed.selectedLayerIds,
             selectedLayers: parsed.selectedLayers,
             mentions: parsed.mentions,

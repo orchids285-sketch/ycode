@@ -127,6 +127,8 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
   const canRedo = useEditorStore((state) => state.canRedo);
   const editingComponentId = useEditorStore((state) => state.editingComponentId);
   const aiBuildingPageId = useEditorStore((state) => state.aiBuildingPageId);
+  const aiBuildingComponentId = useEditorStore((state) => state.aiBuildingComponentId);
+  const aiBuildingComponentVariantId = useEditorStore((state) => state.aiBuildingComponentVariantId);
   const builderDataPreloaded = useEditorStore((state) => state.builderDataPreloaded);
   const setBuilderDataPreloaded = useEditorStore((state) => state.setBuilderDataPreloaded);
   const collectionItemSheet = useEditorStore((state) => state.collectionItemSheet);
@@ -982,6 +984,34 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
     setCurrentPageId(aiBuildingPageId);
     navigateToLayers(aiBuildingPageId);
   }, [aiBuildingPageId, currentPageId, editingComponentId, routeType, pages, setCurrentPageId, navigateToLayers]);
+
+  // When the AI starts editing a component, auto-open that component's edit mode
+  // so the user watches the changes happen in the right place (mirrors the page
+  // flow above). Only fires on design routes — never yanks the user out of CMS,
+  // forms, or settings — and navigates once per target (editingComponentId then
+  // matches aiBuildingComponentId).
+  useEffect(() => {
+    if (!aiBuildingComponentId || aiBuildingComponentId === editingComponentId) return;
+    if (routeType !== 'page' && routeType !== 'layers' && routeType !== 'component') return;
+
+    const { getComponentById, loadComponentDraft } = useComponentsStore.getState();
+    const component = getComponentById(aiBuildingComponentId);
+    if (!component) return;
+
+    const variantExists = aiBuildingComponentVariantId
+      && component.variants?.some((v) => v.id === aiBuildingComponentVariantId);
+    const variantId = variantExists
+      ? aiBuildingComponentVariantId
+      : (component.variants && component.variants.length > 0 ? component.variants[0].id : null);
+
+    void (async () => {
+      await loadComponentDraft(aiBuildingComponentId);
+      const { setEditingComponentId, setEditingComponentVariantId } = useEditorStore.getState();
+      setEditingComponentId(aiBuildingComponentId, currentPageId);
+      setEditingComponentVariantId(variantId);
+      navigateToComponent(aiBuildingComponentId, undefined, undefined, variantId ?? undefined);
+    })();
+  }, [aiBuildingComponentId, aiBuildingComponentVariantId, editingComponentId, routeType, currentPageId, navigateToComponent]);
 
   const selectedLayerIdRef = useRef<string | null>(null);
   const selectedLayerIdsRef = useRef<string[]>([]);
