@@ -250,6 +250,7 @@ const CLASS_PROPERTY_MAP: Record<string, RegExp> = {
   flexWrap: /^flex-(wrap|wrap-reverse|nowrap)$/,
   justifyContent: /^justify-(start|end|center|between|around|evenly|stretch)$/,
   alignItems: /^items-(start|end|center|baseline|stretch)$/,
+  alignSelf: /^self-(auto|start|end|center|baseline|stretch)$/,
   alignContent: /^content-(start|end|center|between|around|evenly|stretch)$/,
   gap: /^gap-(\[.+\]|\d+|px|0\.5|1\.5|2\.5|3\.5)$/,
   columnGap: /^gap-x-(\[.+\]|\d+|px|0\.5|1\.5|2\.5|3\.5)$/,
@@ -715,6 +716,13 @@ export function propertyToClass(
           'flex-end': 'end',
         };
         return `items-${itemsMap[value] || value}`;
+      }
+      case 'alignSelf': {
+        const selfMap: Record<string, string> = {
+          'flex-start': 'start',
+          'flex-end': 'end',
+        };
+        return `self-${selfMap[value] || value}`;
       }
       case 'alignContent': {
         const contentMap: Record<string, string> = {
@@ -1438,6 +1446,14 @@ export function classesToDesign(classes: string | string[]): Layer['design'] {
       const value = cls.replace('items-', '');
       if (['start', 'end', 'center', 'baseline', 'stretch'].includes(value)) {
         design.layout!.alignItems = value;
+      }
+    }
+
+    // Align Self
+    if (cls.startsWith('self-')) {
+      const value = cls.replace('self-', '');
+      if (['auto', 'start', 'end', 'center', 'baseline', 'stretch'].includes(value)) {
+        design.layout!.alignSelf = value;
       }
     }
 
