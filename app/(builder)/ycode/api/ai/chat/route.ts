@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { isAllowedModel } from '@/lib/agent/models';
 import { getAgentProvider, AgentConfigurationError } from '@/lib/agent/providers';
 import { runAgent } from '@/lib/agent/runtime';
 import type { AgentContentBlock, AgentMessage } from '@/lib/agent/providers/types';
@@ -84,21 +83,18 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Resolve the provider before streaming so a missing key returns a clean 400
-  // (once the stream starts, the HTTP status can no longer change).
+  // (once the stream starts, the HTTP status can no longer change). The
+  // client-chosen model is honored only if it's allowed, enabled, and served
+  // by a provider with a key — getAgentProvider falls back to the default
+  // model (and its provider) otherwise.
   let provider, model;
   try {
-    ({ provider, model } = await getAgentProvider());
+    ({ provider, model } = await getAgentProvider(parsed.model));
   } catch (error) {
     if (error instanceof AgentConfigurationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: 'Failed to initialize AI provider' }, { status: 500 });
-  }
-
-  // Honor a client-chosen model only if it's in the allowlist; otherwise keep
-  // the server-resolved default.
-  if (parsed.model && isAllowedModel(parsed.model)) {
-    model = parsed.model;
   }
 
   const messages: AgentMessage[] = parsed.messages.map((message) => ({

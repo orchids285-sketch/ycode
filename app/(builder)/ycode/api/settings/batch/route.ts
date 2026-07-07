@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AI_SECRET_SETTING_KEYS } from '@/lib/agent/config';
 import { setSettings } from '@/lib/repositories/settingsRepository';
 import { clearAllCache, getAllPublishedRoutes, warmRoutes } from '@/lib/services/cacheService';
 
@@ -6,7 +7,13 @@ import { clearAllCache, getAllPublishedRoutes, warmRoutes } from '@/lib/services
  * Setting keys that don't affect public-page rendering. Mirrors the list in
  * /ycode/api/settings/[key]/route.ts — keep them in sync.
  */
-const DRAFT_ONLY_SETTING_KEYS = new Set(['draft_css', 'email']);
+const DRAFT_ONLY_SETTING_KEYS = new Set([
+  'draft_css',
+  'email',
+  ...AI_SECRET_SETTING_KEYS,
+  'ai_model',
+  'ai_enabled_models',
+]);
 
 /**
  * PUT /ycode/api/settings/batch

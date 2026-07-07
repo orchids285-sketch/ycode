@@ -17,6 +17,7 @@ import {
 import { Icon } from '@/components/ui/icon';
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '@/lib/agent/models';
 import { cn } from '@/lib/utils';
+import { useAgentSettingsStore } from '@/stores/useAgentSettingsStore';
 import type { ImageAttachment, Mention } from '@/stores/useAiChatStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 
@@ -469,7 +470,19 @@ function ModelPicker({
   model: string | null;
   onChange: (model: string | null) => void;
 }) {
-  const current = AGENT_MODELS.find((option) => option.id === model);
+  // Models can be restricted in Settings → Agent, and a model is only usable
+  // when its provider has an API key; fall back to the full allowlist until
+  // the status has loaded.
+  const agentStatus = useAgentSettingsStore((s) => s.status);
+  const options = agentStatus
+    ? AGENT_MODELS.filter(
+      (option) =>
+        agentStatus.enabledModels.includes(option.id) &&
+          agentStatus.providers[option.provider]?.configured,
+    )
+    : AGENT_MODELS;
+
+  const current = options.find((option) => option.id === model) ?? options[0];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -486,7 +499,7 @@ function ModelPicker({
           value={model ?? DEFAULT_AGENT_MODEL}
           onValueChange={(value) => onChange(value)}
         >
-          {AGENT_MODELS.map((option) => (
+          {options.map((option) => (
             <DropdownMenuRadioItem key={option.id} value={option.id}>
               {option.label}
             </DropdownMenuRadioItem>

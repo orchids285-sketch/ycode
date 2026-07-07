@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -16,9 +17,11 @@ import {
 import { Icon } from '@/components/ui/icon';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { providerOfModel } from '@/lib/agent/models';
 import { getLayerName } from '@/lib/layer-display-utils';
 import { findLayerById } from '@/lib/layer-utils';
 import { cn } from '@/lib/utils';
+import { useAgentSettingsStore } from '@/stores/useAgentSettingsStore';
 import { useAiChatStore } from '@/stores/useAiChatStore';
 import type { ChatMessage, ChatMessagePart, ChatSession, ChatToolCall, ImageAttachment, Mention, SelectedLayerRef, SessionUsage, TurnChange } from '@/stores/useAiChatStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
@@ -211,6 +214,10 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
   const loadChat = useAiChatStore((s) => s.loadChat);
   const deleteChat = useAiChatStore((s) => s.deleteChat);
 
+  const agentStatus = useAgentSettingsStore((s) => s.status);
+  const isLoadingAgentStatus = useAgentSettingsStore((s) => s.isLoading);
+  const loadAgentStatus = useAgentSettingsStore((s) => s.loadStatus);
+
   const selectedLayerIds = useEditorStore((s) => s.selectedLayerIds);
   const currentPageId = useEditorStore((s) => s.currentPageId);
   const draftLayers = usePagesStore((s) =>
@@ -275,6 +282,25 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
   }, [selectedLayerIds, draftLayers]);
 
   useEffect(() => {
+    void loadAgentStatus();
+  }, [loadAgentStatus]);
+
+  // A previously chosen model may have been disabled in Settings → Agent since,
+  // or its provider's API key removed; snap the picker back to the configured
+  // default so the request isn't silently remapped server-side.
+  useEffect(() => {
+    if (!agentStatus || !model) return;
+    const provider = providerOfModel(model);
+    const usable =
+      agentStatus.enabledModels.includes(model) &&
+      provider !== null &&
+      agentStatus.providers[provider]?.configured;
+    if (!usable) {
+      setModel(agentStatus.model);
+    }
+  }, [agentStatus, model, setModel]);
+
+  useEffect(() => {
     const el = scrollRef.current;
     if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, status]);
@@ -291,6 +317,44 @@ export default function AiChatPanel({ embedded = false }: AiChatPanelProps) {
       referenceUrls: parseUrls(text),
     });
   };
+
+  // No agent connected yet (or status still loading): show the connect
+  // instructions instead of the chat. The API key lives in Settings → Agent.
+  if (!agentStatus || !agentStatus.configured) {
+    return (
+      <div
+        className={cn(
+          'flex flex-col overflow-hidden',
+          embedded
+            ? 'flex-1 min-h-0'
+            : 'w-80 shrink-0 bg-background border-l h-full',
+        )}
+      >
+        {!embedded && (
+          <div className="flex items-center justify-between gap-2 px-4 h-12 shrink-0 border-b">
+            <span className="text-xs font-medium">AI Agent</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="size-7 p-0"
+              onClick={close}
+              aria-label="Close AI panel"
+              title="Close"
+            >
+              <Icon name="x" className="size-3.5" />
+            </Button>
+          </div>
+        )}
+        {!agentStatus && isLoadingAgentStatus ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Spinner />
+          </div>
+        ) : (
+          <ConnectAgentState />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -559,6 +623,34 @@ function ChatHistoryMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Shown when no AI provider is configured: explains the BYOK setup and links
+ * to Settings → Agent where the user can add their API key. */
+function ConnectAgentState() {
+  const router = useRouter();
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="flex size-9 items-center justify-center rounded-full bg-muted">
+        <Icon name="sparkles" className="size-4 text-muted-foreground" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className="text-xs font-medium">Connect your AI agent</p>
+        <p className="text-xs text-muted-foreground">
+          To use the Agent, add your own AI API key and choose which models it can use in
+          Settings.
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => router.push('/ycode/settings/agent')}
+      >
+        Go to Agent settings
+      </Button>
+    </div>
   );
 }
 

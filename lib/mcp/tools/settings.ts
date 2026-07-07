@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { AI_SECRET_SETTING_KEYS } from '@/lib/agent/config';
 import { getAllSettings, getSettingByKey, setSetting, setSettings } from '@/lib/repositories/settingsRepository';
+
+/** Secrets that must never appear in tool output (agent transcripts, MCP clients). */
+const SECRET_SETTING_KEYS = new Set(AI_SECRET_SETTING_KEYS);
 
 export function registerSettingsTools(server: McpServer) {
   server.tool(
@@ -11,7 +15,7 @@ export function registerSettingsTools(server: McpServer) {
     },
     async ({ key }) => {
       if (key) {
-        const value = await getSettingByKey(key);
+        const value = SECRET_SETTING_KEYS.has(key) ? '[redacted]' : await getSettingByKey(key);
         return {
           content: [{
             type: 'text' as const,
@@ -26,7 +30,7 @@ export function registerSettingsTools(server: McpServer) {
           type: 'text' as const,
           text: JSON.stringify(settings.map((s) => ({
             key: s.key,
-            value: s.value,
+            value: SECRET_SETTING_KEYS.has(s.key) ? '[redacted]' : s.value,
           })), null, 2),
         }],
       };

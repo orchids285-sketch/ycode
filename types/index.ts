@@ -1267,6 +1267,36 @@ export interface Setting {
   updated_at: string;
 }
 
+// Agent (AI builder) Settings
+export type AgentProviderId = 'anthropic' | 'openai' | 'google';
+
+export interface AgentProviderKeyStatus {
+  /** Whether this provider has an API key (from settings or environment). */
+  configured: boolean;
+  /** Where the active key comes from. */
+  source: 'setting' | 'env' | null;
+  /** Masked hint of the configured key (e.g. "sk-ant-...wxyz"), never the full key. */
+  maskedKey: string | null;
+}
+
+export interface AgentSettingsStatus {
+  /** Whether at least one provider has an API key. */
+  configured: boolean;
+  /** Per-provider key status. */
+  providers: Record<AgentProviderId, AgentProviderKeyStatus>;
+  /** Default model id. */
+  model: string;
+  /** Model ids the builder is allowed to use. */
+  enabledModels: string[];
+}
+
+export interface UpdateAgentSettingsData {
+  /** Per-provider keys; null removes the stored key; undefined keeps the current one. */
+  keys?: Partial<Record<AgentProviderId, string | null>>;
+  model?: string;
+  enabledModels?: string[];
+}
+
 // Color Variables
 export interface ColorVariable {
   id: string;

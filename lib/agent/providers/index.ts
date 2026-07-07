@@ -1,15 +1,21 @@
 import { resolveAgentConfig } from '@/lib/agent/config';
+import { isAllowedModel, providerOfModel } from '@/lib/agent/models';
 
 import { createAnthropicProvider } from './anthropic';
+import { createGoogleProvider } from './google';
+import { createOpenAiProvider } from './openai';
+
+import type { AgentProviderId } from '@/lib/agent/models';
 import type { AgentProvider } from './types';
 
 /**
  * Provider selection.
  *
- * The open-source build ships only the BYOK Anthropic provider. The Ycode Cloud
- * overlay calls `registerHostedProvider` at startup to take over for hosted
- * tenants — so the hosted implementation lives entirely in the overlay and is
- * simply absent from self-host builds.
+ * The open-source build ships BYOK providers for Anthropic, OpenAI, and Google
+ * Gemini, picked by the model the request runs on. The Ycode Cloud overlay
+ * calls `registerHostedProvider` at startup to take over for hosted tenants —
+ * so the hosted implementation lives entirely in the overlay and is simply
+ * absent from self-host builds.
  */
 
 export class AgentConfigurationError extends Error {}
@@ -23,26 +29,77 @@ export function registerHostedProvider(factory: HostedProviderFactory): void {
   hostedProviderFactory = factory;
 }
 
+const PROVIDER_FACTORIES: Record<AgentProviderId, (apiKey: string) => AgentProvider> = {
+  anthropic: createAnthropicProvider,
+  openai: createOpenAiProvider,
+  google: createGoogleProvider,
+};
+
+const PROVIDER_LABELS: Record<AgentProviderId, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google Gemini',
+};
+
 /**
  * Resolve the active provider for the current request.
  *
- * Prefers a registered hosted provider (Cloud); otherwise falls back to BYOK
- * using the resolved Anthropic key. Throws AgentConfigurationError when no
- * usable backend is configured, so the API route can surface a clear message.
+ * Prefers a registered hosted provider (Cloud); otherwise picks the BYOK
+ * backend that serves the resolved model. A client-requested model is honored
+ * only when it's in the allowlist, enabled in the agent settings, AND its
+ * provider has a key; otherwise the server-resolved default applies. Throws
+ * AgentConfigurationError when no usable backend is configured, so the API
+ * route can surface a clear message.
  */
-export async function getAgentProvider(): Promise<{ provider: AgentProvider; model: string }> {
+export async function getAgentProvider(requestedModel?: string | null): Promise<{
+  provider: AgentProvider;
+  model: string;
+  enabledModels: string[];
+}> {
   const config = await resolveAgentConfig();
+
+  let model = config.model;
+  if (
+    requestedModel &&
+    isAllowedModel(requestedModel) &&
+    config.enabledModels.includes(requestedModel) &&
+    hasKeyForModel(config.providers, requestedModel)
+  ) {
+    model = requestedModel;
+  }
 
   if (hostedProviderFactory) {
     const hosted = await hostedProviderFactory();
-    if (hosted) return { provider: hosted, model: config.model };
+    if (hosted) return { provider: hosted, model, enabledModels: config.enabledModels };
   }
 
-  if (!config.apiKey) {
+  if (!config.configured) {
     throw new AgentConfigurationError(
-      'No Anthropic API key configured. Set ANTHROPIC_API_KEY (or the ai_anthropic_api_key setting) to use the AI builder.',
+      'No AI agent connected. Add an Anthropic, OpenAI, or Google Gemini API key in Settings → Agent to use the AI builder.',
     );
   }
 
-  return { provider: createAnthropicProvider(config.apiKey), model: config.model };
+  // Custom model ids outside the allowlist (self-hoster env override) run on
+  // Anthropic, matching the ANTHROPIC_MODEL escape hatch they're set through.
+  const providerId = providerOfModel(model) ?? 'anthropic';
+  const apiKey = config.providers[providerId].apiKey;
+  if (!apiKey) {
+    throw new AgentConfigurationError(
+      `No API key configured for ${PROVIDER_LABELS[providerId]}. Add one in Settings → Agent or pick a model from a connected provider.`,
+    );
+  }
+
+  return {
+    provider: PROVIDER_FACTORIES[providerId](apiKey),
+    model,
+    enabledModels: config.enabledModels,
+  };
+}
+
+function hasKeyForModel(
+  providers: Awaited<ReturnType<typeof resolveAgentConfig>>['providers'],
+  model: string,
+): boolean {
+  const providerId = providerOfModel(model);
+  return providerId !== null && providers[providerId].apiKey !== null;
 }

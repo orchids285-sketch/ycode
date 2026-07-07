@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { AI_SECRET_SETTING_KEYS } from '@/lib/agent/config';
 import { getAllDraftPages } from '@/lib/repositories/pageRepository';
 import { getAllDraftLayers } from '@/lib/repositories/pageLayersRepository';
 import { getAllPageFolders } from '@/lib/repositories/pageFolderRepository';
@@ -78,8 +79,13 @@ export async function GET() {
         Awaited<typeof tasks.googleMaps>,
       ];
 
+    // Never ship secrets to the client. The agent API keys are only consumed
+    // server-side (lib/agent/config); the settings UI reads a masked status
+    // from /ycode/api/settings/agent instead.
+    const SECRET_SETTING_KEYS = new Set(AI_SECRET_SETTING_KEYS);
+
     // Inject app-sourced tokens into settings so they're available via settingsByKey
-    const enrichedSettings = [...settings];
+    const enrichedSettings = settings.filter((setting) => !SECRET_SETTING_KEYS.has(setting.key));
     const injectedTokens: [string, string, string | null][] = [
       ['app:mapbox:access_token', 'mapbox_access_token', resolvedMapboxToken],
       ['app:google-maps-embed:api_key', 'google_maps_embed_api_key', resolvedGoogleMapsEmbedKey],

@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-import { DEFAULT_AGENT_MODEL, REVIEW_AGENT_MODEL } from '@/lib/agent/models';
+import { DEFAULT_AGENT_MODEL, reviewModelFor } from '@/lib/agent/models';
 import { syncLayerAssets } from '@/lib/canvas-asset-sync';
 import { findAddedLayerIds } from '@/lib/layer-utils';
 import { useComponentsStore } from '@/stores/useComponentsStore';
@@ -496,9 +496,9 @@ export const useAiChatStore = create<AiChatStore>()(
               selectedLayers: attachment?.selectedLayers ?? [],
               mentions: attachment?.mentions ?? [],
               referenceUrls: attachment?.referenceUrls ?? [],
-              // Review passes always run on the cheaper review model; the
-              // user's pick only applies to the main turn.
-              model: isReview ? REVIEW_AGENT_MODEL : get().model ?? undefined,
+              // Review passes run on the cheaper review model of the same
+              // provider; the user's pick only applies to the main turn.
+              model: isReview ? reviewModelFor(get().model) : get().model ?? undefined,
             }),
             signal,
           });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AI_SECRET_SETTING_KEYS } from '@/lib/agent/config';
 import { getSettingByKey, setSetting } from '@/lib/repositories/settingsRepository';
 import { clearAllCache, getAllPublishedRoutes, warmRoutes } from '@/lib/services/cacheService';
 
@@ -11,11 +12,24 @@ import { clearAllCache, getAllPublishedRoutes, warmRoutes } from '@/lib/services
  *   keystroke and undo selective invalidation entirely.
  * - `email`: SMTP credentials for form submission backend. Not consumed by
  *   public page renders.
+ * - `ai_*`: AI builder configuration (API key, model choices). Builder-only.
  *
  * All other keys (redirects, favicon_url, ga_measurement_id, published_css,
  * color variables, etc.) are read by public pages and DO require invalidation.
  */
-const DRAFT_ONLY_SETTING_KEYS = new Set(['draft_css', 'email']);
+const DRAFT_ONLY_SETTING_KEYS = new Set([
+  'draft_css',
+  'email',
+  ...AI_SECRET_SETTING_KEYS,
+  'ai_model',
+  'ai_enabled_models',
+]);
+
+/**
+ * Secrets that must never be returned raw to the client. The agent settings
+ * page reads a masked status from /ycode/api/settings/agent instead.
+ */
+const SECRET_SETTING_KEYS = new Set(AI_SECRET_SETTING_KEYS);
 
 /**
  * GET /ycode/api/settings/[key]
@@ -28,6 +42,14 @@ export async function GET(
 ) {
   try {
     const { key } = await params;
+
+    if (SECRET_SETTING_KEYS.has(key)) {
+      return NextResponse.json(
+        { error: 'This setting cannot be read directly' },
+        { status: 403 }
+      );
+    }
+
     const value = await getSettingByKey(key);
 
     if (value === null) {
