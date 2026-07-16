@@ -93,6 +93,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import AdFormatMenu from './AdFormatMenu';
+import ExportCreativeButton from './ExportCreativeButton';
 
 type ViewportMode = 'desktop' | 'tablet' | 'mobile';
 
@@ -155,6 +156,8 @@ function ViewportZoomControls({
       </Tabs>
       {/* Ad-format presets — size the creative to a standard ad canvas */}
       <AdFormatMenu />
+      {/* Export the sized creative as a downloadable image (PNG/JPG) */}
+      <ExportCreativeButton />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
