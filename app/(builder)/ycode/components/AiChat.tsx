@@ -65,31 +65,34 @@ function mergeBg(existing: string | string[] | undefined, bg: string[]): string 
 
 function runLocalCommand(text: string, pageId: string): string | null {
   const t = ' ' + text.toLowerCase() + ' ';
-  const store = usePagesStore.getState();
   const applied: string[] = [];
+  // Read state FRESH each step: every store.set() replaces draftsByPageId with a
+  // new object, so a captured snapshot goes stale (a bg edit would clobber the
+  // format edit). getState() re-reads the latest classes each time.
+  const bodyLayer = () => usePagesStore.getState().draftsByPageId[pageId]?.layers?.[0];
 
   for (const [re, id, label] of TEMPLATE_KEYWORDS) {
-    if (re.test(t)) { store.addLayerFromTemplate(pageId, 'body', id); applied.push(`added a “${label}” layout`); break; }
+    if (re.test(t)) { usePagesStore.getState().addLayerFromTemplate(pageId, 'body', id); applied.push(`added a “${label}” layout`); break; }
   }
-  let body = store.draftsByPageId[pageId]?.layers?.[0];
   for (const [re, w, h, label] of FORMAT_KEYWORDS) {
+    const body = bodyLayer();
     if (re.test(t) && body) {
-      store.updateLayerClasses(pageId, body.id, mergeSize(body.classes, `w-[${w}px] h-[${h}px] mx-auto overflow-hidden`));
+      usePagesStore.getState().updateLayerClasses(pageId, body.id, mergeSize(body.classes, `w-[${w}px] h-[${h}px] mx-auto overflow-hidden`));
       applied.push(`set the format to ${label} (${w}×${h})`);
       break;
     }
   }
-  body = store.draftsByPageId[pageId]?.layers?.[0];
   for (const [re, classes, label] of BG_KEYWORDS) {
+    const body = bodyLayer();
     if (re.test(t) && body) {
-      store.updateLayerClasses(pageId, body.id, mergeBg(body.classes, classes));
+      usePagesStore.getState().updateLayerClasses(pageId, body.id, mergeBg(body.classes, classes));
       applied.push(`set a ${label} background`);
       break;
     }
   }
 
   if (!applied.length) return null;
-  void store.saveDraft(pageId);
+  void usePagesStore.getState().saveDraft(pageId);
   const cap = applied.map((s, i) => (i === 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s));
   return cap.join(', ') + '.';
 }
