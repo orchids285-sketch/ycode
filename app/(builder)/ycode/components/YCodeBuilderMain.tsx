@@ -38,7 +38,6 @@ import { checkCircularReference, detachSpecificLayerFromComponent } from '@/lib/
 
 // Right sidebar is always visible in editor mode - load eagerly to avoid delay
 import RightSidebar from '../components/RightSidebar';
-import AiPanel from '../components/AiPanel';
 
 // Lazy-loaded components (heavy, not needed on initial render)
 const CMS = lazy(() => import('../components/CMS'));
@@ -2282,8 +2281,6 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
                 />
               )}
 
-              {/* AI copilot panel — full control of the page via the MCP tools */}
-              {!isEditor && <AiPanel />}
             </div>
           </>
         )}

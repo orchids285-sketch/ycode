@@ -30,6 +30,7 @@ import {
   SelectSeparator
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import AiChat from './AiChat';
 
 // 4. Internal components
 import AddAttributeModal from './AddAttributeModal';
@@ -185,16 +186,18 @@ const RightSidebar = React.memo(function RightSidebar({
   }, []);
 
   // Local state for immediate UI feedback
-  const [activeTab, setActiveTab] = useState<'design' | 'settings' | 'interactions' | undefined>(
+  const [activeTab, setActiveTab] = useState<'design' | 'settings' | 'interactions' | 'chat' | undefined>(
     urlState.rightTab || 'design'
   );
+  // Chat AI panel can be widened (extensible) when active.
+  const [chatExpanded, setChatExpanded] = useState(false);
 
   // Track last user-initiated change to prevent URL→state sync loops
   const lastUserChangeRef = useRef<number>(0);
 
   // Handle tab change: optimistic UI update + background URL sync
   const handleTabChange = useCallback((value: string) => {
-    const newTab = value as 'design' | 'settings' | 'interactions';
+    const newTab = value as 'design' | 'settings' | 'interactions' | 'chat';
 
     // Immediate UI update
     setActiveTab(newTab);
@@ -202,8 +205,8 @@ const RightSidebar = React.memo(function RightSidebar({
     // Mark as user-initiated (prevents URL→state sync for 100ms)
     lastUserChangeRef.current = Date.now();
 
-    // Background URL update
-    if (routeType === 'page' || routeType === 'layers' || routeType === 'component') {
+    // Background URL update (the Chat AI tab is ephemeral — no URL sync)
+    if (newTab !== 'chat' && (routeType === 'page' || routeType === 'layers' || routeType === 'component')) {
       updateQueryParams({ tab: newTab });
     }
   }, [routeType, updateQueryParams]);
@@ -1929,9 +1932,27 @@ const RightSidebar = React.memo(function RightSidebar({
   };
 
   if (!selectedLayerId || !selectedLayer) {
+    // No layer selected: the Design/Settings/Interactions tabs need one, but the
+    // Chat AI copilot works on the whole page — keep the tab bar so it's reachable.
     return (
-      <div className="w-64 shrink-0 bg-background border-l flex items-center justify-center h-screen">
-        <span className="text-xs text-muted-foreground">Select layer</span>
+      <div className={`${activeTab === 'chat' && chatExpanded ? 'w-[560px]' : 'w-64'} shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden transition-[width] duration-150`}>
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col flex-1 min-h-0 gap-0">
+          <TabsList className="w-full">
+            <TabsTrigger value="design">Design</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="interactions">Interactions</TabsTrigger>
+            <TabsTrigger value="chat">Chat AI</TabsTrigger>
+          </TabsList>
+          <hr className="mt-4" />
+          <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden overflow-hidden -mx-4">
+            <AiChat expanded={chatExpanded} onToggleExpand={() => setChatExpanded((v) => !v)} />
+          </TabsContent>
+          {activeTab !== 'chat' && (
+            <div className="flex-1 flex items-center justify-center">
+              <span className="text-xs text-muted-foreground">Select a layer</span>
+            </div>
+          )}
+        </Tabs>
       </div>
     );
   }
@@ -1958,7 +1979,7 @@ const RightSidebar = React.memo(function RightSidebar({
   }
 
   return (
-    <div className="w-64 shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden">
+    <div className={`${activeTab === 'chat' && chatExpanded ? 'w-[560px]' : 'w-64'} shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden transition-[width] duration-150`}>
       {/* Tabs.
           When the user is translating (non-default locale active) we keep the
           tab list visible but disable Design + Interactions and force the
@@ -1974,10 +1995,16 @@ const RightSidebar = React.memo(function RightSidebar({
             <TabsTrigger value="design" disabled={isLocalizing}>Design</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="interactions" disabled={isLocalizing}>Interactions</TabsTrigger>
+            <TabsTrigger value="chat" disabled={isLocalizing}>Chat AI</TabsTrigger>
           </TabsList>
         </div>
 
         <hr className="mt-4" />
+
+        {/* Chat AI tab — the copilot lives in the same tab bar as Design/Settings/Interactions */}
+        <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden overflow-hidden -mx-4">
+          <AiChat expanded={chatExpanded} onToggleExpand={() => setChatExpanded((v) => !v)} />
+        </TabsContent>
 
         {/* Design tab */}
         <TabsContent value="design" className="flex-1 flex flex-col divide-y data-[state=inactive]:hidden mt-0 overflow-hidden">
