@@ -3,8 +3,7 @@
  * Creates a Supabase client from cookies and verifies the session.
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 import { credentials } from '@/lib/credentials';
 import { parseSupabaseConfig } from '@/lib/supabase-config-parser';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -25,25 +24,24 @@ export async function getAuthUser(): Promise<AuthResult | null> {
     if (!config) return null;
 
     const parsed = parseSupabaseConfig(config);
-    const cookieStore = await cookies();
 
-    const client = createServerClient(parsed.projectUrl, parsed.anonKey, {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set({ name, value, ...options });
-          });
-        },
-      },
+    // NO-AUTH mode (self-hosted "Creatives" — no login screen, no auto-login).
+    // Every request is treated as a single default owner, using a service-role
+    // client that bypasses RLS so the builder works without any authentication.
+    const client = createClient(parsed.projectUrl, config.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
+    const user = {
+      id: '00000000-0000-0000-0000-000000000001',
+      email: 'creatives@foundreach.local',
+      app_metadata: { role: 'owner', provider: 'noauth' },
+      user_metadata: {},
+      aud: 'authenticated',
+      role: 'authenticated',
+      created_at: new Date(0).toISOString(),
+    } as unknown as User;
 
-    const { data: { user }, error } = await client.auth.getUser();
-    if (error || !user) return null;
-
-    return { user, client };
+    return { user, client: client as unknown as SupabaseClient };
   } catch {
     return null;
   }
