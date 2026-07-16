@@ -1,6 +1,7 @@
-import { SYSTEM_INSTRUCTIONS } from '@/lib/mcp/instructions';
+import { DEFERRED_GROUP_GUIDES, SYSTEM_INSTRUCTIONS } from '@/lib/mcp/instructions';
 import { DEFAULT_MAX_TOKENS, MAX_HISTORY_CHARS, MAX_HISTORY_MESSAGES, MAX_TOOL_TURNS } from '@/lib/agent/config';
 import { compactToolResult } from '@/lib/agent/tools/compact-result';
+import { buildDesignBriefTool, DESIGN_BRIEF_NAME } from '@/lib/agent/tools/design-brief';
 import { buildLoadToolsTool, deferredGroupOf, LOAD_TOOLS_NAME } from '@/lib/agent/tools/deferred';
 import { getAgentToolMap, getAgentTools } from '@/lib/agent/tools/registry';
 import { estimateCostUsd } from '@/lib/agent/models';
@@ -88,10 +89,17 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   // component tools are the primary editing surface, so preload them.
   const activeGroups = new Set<AgentToolGroup>(['core']);
   if (options.context?.componentId) activeGroups.add('components');
+  // Deep-dive guides for deferred groups ship with the group's tools, not in
+  // the system prompt. Track delivery so each guide is sent at most once.
+  // When component tools are preloaded, buildSystemPrompt already inlines the
+  // components guide.
+  const deliveredGuides = new Set<string>(options.context?.componentId ? ['components'] : []);
   const loadToolsTool = buildLoadToolsTool();
+  const designBriefTool = buildDesignBriefTool();
   const activeTools = () => [
     ...allTools.filter((tool) => activeGroups.has(tool.group)),
     loadToolsTool,
+    designBriefTool,
   ];
 
   // Bound the cross-turn history before anything else so a long chat can't push
@@ -103,6 +111,15 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
   // truth, so a get_layers call for that page can be answered with a stub
   // instead of a second copy of the same tree.
   let snapshotIsFresh = snapshotPageId !== null;
+
+  // Plan-first creativity: full builds on a BLANK page must record a creative
+  // brief (design_brief) before the first build call, which reliably widens
+  // the variety of the output. A brief anywhere in the conversation counts.
+  // Enforcement is single-shot (one corrective result), mirroring
+  // NO_OP_CORRECTION, so a non-compliant model can never loop.
+  const activePageIsBlank = snapshotPageId !== null && await isPageBlank(snapshotPageId);
+  let briefRecorded = conversationHasDesignBrief(messages);
+  let briefCorrectionTurn: number | null = null;
 
   // One-time snapshot of the fixed per-call prefix so the logs show how much of
   // each turn is static (system + tools) vs. accumulating history. ~4 chars/token.
@@ -255,21 +272,65 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
       // system instructions document those tools, so it often knows the name).
       if (call.name === LOAD_TOOLS_NAME) {
         const requested = Array.isArray(call.input.groups) ? call.input.groups : [];
+        const guides: string[] = [];
         for (const group of requested) {
-          if (typeof group === 'string') activeGroups.add(group as AgentToolGroup);
+          if (typeof group !== 'string') continue;
+          activeGroups.add(group as AgentToolGroup);
+          if (DEFERRED_GROUP_GUIDES[group] && !deliveredGuides.has(group)) {
+            deliveredGuides.add(group);
+            guides.push(DEFERRED_GROUP_GUIDES[group]);
+          }
         }
         const loaded = activeTools().map((tool) => tool.name).join(', ');
         results.push({
           type: 'tool_result',
           toolUseId: call.id,
-          content: `Loaded. Tools now available: ${loaded}`,
+          content: `Loaded. Tools now available: ${loaded}`
+            + (guides.length > 0 ? `\n\nInstructions for the loaded group(s):\n\n${guides.join('\n\n')}` : ''),
         });
         yield { type: 'tool_result', id: call.id, name: call.name, ok: true };
         continue;
       }
+      // Plan-first creativity: record the brief, or refuse the first full
+      // build on a blank page until one exists.
+      if (call.name === DESIGN_BRIEF_NAME) {
+        briefRecorded = true;
+        results.push({
+          type: 'tool_result',
+          toolUseId: call.id,
+          content: 'Brief recorded. Hold every section to this direction — palette, typography, and the signature move must show up consistently across the page.',
+        });
+        yield { type: 'tool_result', id: call.id, name: call.name, ok: true };
+        continue;
+      }
+      if (
+        !briefRecorded && activePageIsBlank
+        && (briefCorrectionTurn === null || briefCorrectionTurn === turn)
+        && isFullBuildCall(call) && call.input.page_id === snapshotPageId
+      ) {
+        briefCorrectionTurn = turn;
+        results.push({
+          type: 'tool_result',
+          toolUseId: call.id,
+          content:
+            'Not executed: this is a new build on a blank page, so commit to a creative direction first. '
+            + 'Call design_brief (personality, palette, typography, signature_move), then retry this operation and build to that brief.',
+          isError: true,
+        });
+        yield { type: 'tool_result', id: call.id, name: call.name, ok: false };
+        continue;
+      }
+
+      // Auto-load: the model called a deferred tool directly, so its group's
+      // guide hasn't been delivered yet — attach it to this tool's result.
+      let autoLoadGuide = '';
       const neededGroup = deferredGroupOf(call.name);
       if (neededGroup && !activeGroups.has(neededGroup)) {
         activeGroups.add(neededGroup);
+        if (DEFERRED_GROUP_GUIDES[neededGroup] && !deliveredGuides.has(neededGroup)) {
+          deliveredGuides.add(neededGroup);
+          autoLoadGuide = DEFERRED_GROUP_GUIDES[neededGroup];
+        }
       }
 
       if (!isReadOnlyTool(call.name)) {
@@ -315,6 +376,9 @@ export async function* runAgent(options: RunAgentOptions): AsyncIterable<Runtime
         }
       }
       const result = await executeTool(toolMap, call);
+      if (autoLoadGuide) {
+        result.content += `\n\nInstructions for the ${neededGroup} tool group (now loaded):\n\n${autoLoadGuide}`;
+      }
       results.push(result);
       yield { type: 'tool_result', id: call.id, name: call.name, ok: !result.isError };
     }
@@ -438,6 +502,7 @@ async function executeTool(
  * this is belt and suspenders — it stops the agent from claiming it published.
  */
 const AGENT_POLICY = [
+  'Before building a NEW design on a blank page (creative mode 3), call design_brief first to commit to a creative direction — personality, palette, typography, signature move. The first add_layout / batch_operations on a blank page is refused until a brief exists. Skip it for edits to existing pages and reference recreations. If the user wants a specific aesthetic, encourage them to paste a screenshot of the direction — images improve results far more than adjectives.',
   'Never publish. The user controls publishing — they review your changes on the canvas and click the Publish button when ready.',
   'Do not call any publish tool and do not tell the user their changes are live. Leave everything as drafts.',
   'Only describe edits you actually performed with tools. If you intend to make changes, call the tools to make them in the same turn — never reply that something is done, saved, or drafted unless you have already called the tools that did it.',
@@ -579,6 +644,48 @@ function isContextOverflowError(error: unknown): boolean {
  * static system block stays cache-friendly, and scoped to this turn only — it is
  * never folded back into the persisted conversation history.
  */
+/**
+ * A page with no real content — just the body root (or an empty scaffold).
+ * These are the builds where plan-first creative direction matters; edits to
+ * existing pages already inherit a design system and are never blocked.
+ */
+async function isPageBlank(pageId: string): Promise<boolean> {
+  try {
+    const layers = await getCachedLayers(pageId);
+    const countContent = (nodes: Layer[]): number =>
+      nodes.reduce((sum, node) => {
+        const self = node.id === 'body' || node.name === 'body' ? 0 : 1;
+        return sum + self + countContent(node.children ?? []);
+      }, 0);
+    return countContent(layers) === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether any prior assistant turn already recorded a design brief. */
+function conversationHasDesignBrief(messages: AgentMessage[]): boolean {
+  return messages.some((message) =>
+    message.role === 'assistant'
+    && message.content.some((block) => block.type === 'tool_use' && block.name === DESIGN_BRIEF_NAME),
+  );
+}
+
+/**
+ * A tool call that begins a full page build (as opposed to a small tweak):
+ * inserting a pre-built layout section, or a batch large enough to be a
+ * hand-built section. Single add_layer calls stay unrestricted so tiny asks
+ * ("add a heading") on a blank page aren't blocked behind a brief.
+ */
+function isFullBuildCall(call: AgentToolUseBlock): boolean {
+  if (call.name === 'add_layout') return true;
+  if (call.name === 'batch_operations') {
+    const operations = call.input.operations;
+    return Array.isArray(operations) && operations.length >= 5;
+  }
+  return false;
+}
+
 async function injectActivePageSnapshot(
   messages: AgentMessage[],
   pageId?: string | null,
@@ -805,7 +912,14 @@ function buildSystemPrompt(context?: AgentEditorContext): string {
     lines.push(`The user referenced these URLs: ${urls}. You cannot browse the web, so do not invent their contents — use them as link destinations or literal content. If the user wants you to replicate a design from a URL, ask them to paste a screenshot instead.`);
   }
 
-  let prompt = `${SYSTEM_INSTRUCTIONS}\n\n## In-app agent policy\n\n${AGENT_POLICY}\n\n## Tool output format\n\n${TOOL_OUTPUT_NOTE}`;
+  let prompt = SYSTEM_INSTRUCTIONS;
+  // Component tools are preloaded when the user is editing a component, so
+  // their deferred guide must ride along in the system prompt (there is no
+  // load_tools call to attach it to).
+  if (context?.componentId) {
+    prompt += `\n${DEFERRED_GROUP_GUIDES.components}\n`;
+  }
+  prompt += `\n\n## In-app agent policy\n\n${AGENT_POLICY}\n\n## Tool output format\n\n${TOOL_OUTPUT_NOTE}`;
   if (lines.length > 0) {
     prompt += `\n\n## Current editor context\n\n${lines.join('\n')}`;
   }

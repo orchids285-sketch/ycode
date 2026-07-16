@@ -151,3 +151,18 @@ export async function broadcastComponentLayersUpdated(
     timestamp: Date.now(),
   });
 }
+
+// Font broadcasts (channel: fonts:updates)
+
+/**
+ * Tell open builders the installed font set changed (agent add_font call or a
+ * design-edit auto-install). The client hook refetches /api/fonts and
+ * re-injects the font CSS into the canvas, so agent-installed fonts render
+ * without a page reload.
+ */
+export async function broadcastFontsChanged(): Promise<void> {
+  await broadcast('fonts:updates', 'fonts_changed', {
+    user_id: MCP_USER_ID,
+    timestamp: Date.now(),
+  });
+}

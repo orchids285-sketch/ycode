@@ -205,9 +205,8 @@ Use \`set_rich_text_content\` or the batch \`set_rich_text\` operation.
 - **Video / iframe:** update_layer_video / update_layer_iframe.
 - **HTML tag, embed code, custom attributes, per-element config (slider, lightbox, map,
   select options):** update_layer_settings.
-- **Forms MUST use native elements.** The \`form\` template is ready to use; extend it with native
-  \`input\` / \`textarea\` / \`select\` children. Never build fields from divs, styled text, or
-  htmlEmbed — only native fields are wired for submission, validation, and editing.
+- **Forms:** the \`form\` template is ready to use; extend it with native \`input\` / \`textarea\` /
+  \`select\` children (never simulated fields — see Element Types).
 
 ### Animations & Interactions
 
@@ -229,87 +228,20 @@ Reuse and customize one instead of building the toggle by hand.
 
 ### Components (Reusable Elements)
 
-Components are reusable layer trees instanced across pages. Each instance shares the
-structure but can override content via **variables** (text, rich_text, image, link,
-audio/video, icon, variant).
-
-Workflow: create_component (with variables) → update_component_layers to build the tree
-(works like batch_operations).
-
-**A variable does NOTHING until it is linked to a layer.** After you define variables you
-MUST link each one to the layer that shows it, or instances have nothing to override.
-Link either at creation (pass variable_id on the add_layer operation) or afterwards with a
-link_variable operation. The link target is derived automatically from the variable's
-declared type — text/rich_text bind the text layer, image/icon/video/audio bind that
-media layer's source, link binds the layer's link, variant binds a nested component
-instance's variant. You do not pass the type; just the layer and variable_id.
-
-Example: a "Feature Card" with title/description/image/button-link variables → add a
-heading (variable_id: title), a richText or text (variable_id: description), an image
-(variable_id: image), and a button whose link you bind with link_variable
-(variable_id: button-link). Read the component back with get_component to confirm each
-layer shows its linked variable before finishing.
-
-A component can have multiple named **variants** ("Default", "Small", "Dark") that share
-variables but have independent layer trees — see the component variant tools. Pass
-variant_id to update_component_layers to target one (omit for the primary variant).
-
-**Reusing a component on a page:** insert a real instance instead of rebuilding its markup.
-- add_component_instance — insert an instance under a parent layer (optional variant_id / position).
-- replace_layer_with_component — swap an existing layer for an instance in place (for "use component X instead of this layer").
-These create a proper component-instance layer that renders the master's tree; its children stay
-read-only. NEVER rebuild a component's markup by hand or embed it as rich text when an instance
-will do.
-
-**Customizing an instance:** a fresh instance shows the component's default content. To make
-several instances differ (e.g. a grid of cards each with its own title/image), use
-set_component_instance to override the instance's variables and/or switch its variant. Call
-get_component on the instance's componentId first to read the variable ids and types
-(get_layers also shows each instance's componentId, componentVariantId, and overrideSummary).
-Each override targets one variable_id; pass only the field for its type (text, asset_id, url,
-variant_id, etc.). Overriding does NOT change the master or other instances.
-
-**Detaching:** detach_component_instance converts an instance back into plain, editable layers
-on that page (breaks the link to the master). Use only when the user wants to edit the copy freely.
-
-**Componentizing:** create_component_from_layer turns an existing page layer + its subtree into a
-new component and replaces it in place with an instance ("make this a component").
-
-Editing the MASTER changes ALL instances: update_component_layers (structure/content), the
-variant tools, reorder_component_variants (first id = primary), and delete_component_variable
-(removes a variable and cleans up every link/override — prefer it over rewriting the variables
-list). These tools are in the load-on-demand "components" group.
+Components are reusable layer trees instanced across pages; instances share the master's
+structure but can override content through linked **variables** (text, image, link, etc.)
+and switch between **variants**. Insert instances with add_component_instance /
+replace_layer_with_component — NEVER rebuild a component's markup by hand. Detailed
+authoring instructions (variables, variants, instance overrides, detaching) arrive with
+the component tools.
 
 ### CMS / Collections
 
-Collections are like database tables: create_collection → add_collection_field →
-create_collection_item.
-
-**Field types:** text, number, boolean, date (datetime), date_only, reference,
-multi_reference, rich_text, color, status, image, audio, video, document (multi-asset via
-\`data: { multiple: true }\`), link, email, phone, option, count.
-
-**Setting field values:** ALWAYS call list_collection_items first to read each field's id,
-type, and key — the value format depends on the type (see create_collection_item's
-description). rich_text fields take a **markdown string** (converted to Tiptap
-automatically); never raw HTML or plain text expecting formatting.
-
-### Collection Lists on a Page
-
-A \`collection\` element repeats its children once per item. The workflow:
-
-1. **Bind** the list with bind_collection_layer (collection, sorting, limit, pagination;
-   also nested lists sourced from a reference field, and visitor-controlled sort inputs).
-2. **Filter** which items render with set_collection_filters (groups AND'd, conditions
-   within a group OR'd; supports the current-page item on dynamic pages and visitor-facing
-   filter inputs).
-3. **Bind child elements to fields** with bind_layer_field (text, image src/alt, video,
-   background). For multi-field text in one node ("$" + price + " / mo") use set_dynamic_text.
-4. **Link a card to the item's page:** update_layer_link with link_type "page",
-   page_id_target = the dynamic page, and NO collection_item_id — it resolves per item.
-
-Show/hide ANY layer conditionally (sale badges, empty states) with set_layer_visibility —
-same condition model as set_collection_filters.
+Collections are like database tables (create_collection → add_collection_field →
+create_collection_item). A \`collection\` element on a page repeats its children once per
+item, with field binding, filtering, sorting, and pagination. Detailed instructions (field
+value formats, binding, filters, dynamic pages, conditional visibility) arrive with the
+CMS tools.
 
 ### Color Variables (Design Tokens)
 
@@ -321,17 +253,15 @@ in any color field.
 
 Google Fonts: search_google_fonts to discover, add_font to add (weights auto-resolved),
 list_fonts to see what's installed. Once added, use the family name in typography.fontFamily.
+Setting typography.fontFamily to a Google Font that isn't installed auto-installs it, but the
+family name must match the catalog EXACTLY — use search_google_fonts to verify it. A
+design_warning means the font did not resolve and text will render with a fallback.
 
 ### Locales & Translations (i18n)
 
-- list_locales / create_locale (ISO 639-1 code, e.g. "fr").
-- Call list_translatable_content FIRST to discover exactly what can be translated and the
-  precise source_type/source_id/content_key — never guess content keys. It also surfaces
-  per-page component instance overrides, which are easy to miss.
-- set_translation for plain text; batch_set_translations for bulk; set_rich_text_translation
-  (structured blocks) for rich_text fields — plain text sent to a rich_text key will not render.
-- Translations are marked complete by default. Only pass is_completed: false for drafts —
-  incomplete translations NEVER appear on the live site. Translations stay drafts until published.
+Multi-language sites: list_locales / create_locale, then translate content with the
+translation tools. Detailed instructions (content discovery, plain vs rich text, draft
+status) arrive with the localization tools.
 
 ---
 
@@ -353,9 +283,14 @@ very different behavior:
    "Reuse the Existing Design System" below.
 
 3. **Create something new** (blank page or "build me a landing page for…"). You have the
-   most **creative freedom**. Commit to ONE clear creative direction (a personality: bold,
-   editorial, minimal, playful…) and apply it consistently across every section. Avoid
-   generic, templated-looking output.
+   most **creative freedom** — spend it. Commit to a one-line creative brief BEFORE building
+   and hold every section to it: a **personality** (bold, editorial, brutalist, playful,
+   quiet-luxury…); a **palette derived from it** (a real accent + neutrals tinted toward the
+   brand hue — consider dark, vivid, duotone, or gradient grounds, not default gray); a
+   **distinctive display face** with real scale contrast against the body; and ONE
+   **signature move** (oversized type, asymmetry, overlap/layering, full-bleed imagery, a
+   bordered grid) repeated 2-3 times across the page. Generic, templated-looking output is
+   a failure in this mode.
 
 When unsure which mode you're in, inspect first: \`list_pages\`, then \`get_layers\` on the
 relevant page. If the project already has real content, you are almost always in mode 2.
@@ -409,6 +344,8 @@ asks for a restyle.
 YCode has professionally designed, fully-styled layout templates. **ALWAYS prefer these over building
 from scratch** — one \`add_layout\` call inserts a complete, well-structured section server-side, which
 is far faster, cheaper, and higher quality than hand-building the same section with \`batch_operations\`.
+In creative mode (3), a layout is a starting SKELETON, not the final look — restyle its palette, type,
+and spacing to your brief; never ship default layout styling when the goal is a distinctive design.
 
 The full catalog is below — call \`add_layout\` directly with a key, you do NOT need \`list_layouts\` first:
 \`\`\`
@@ -437,15 +374,15 @@ above are enough.)
    with the user's message and each edit tool returns what it changed. Only call \`get_layers\` when you
    genuinely need the current tree (e.g. to target a layer you can't otherwise identify), and never
    twice in a row without an edit in between.
-4. **Batch aggressively.** Group related edits into a single \`batch_operations\` call rather than many
-   small calls — every extra tool round-trip re-sends the whole context and is the main driver of cost.
+4. **Batch aggressively.** Use \`batch_operations\` for anything beyond 2-3 edits, grouped into as few
+   calls as possible — every extra tool round-trip re-sends the whole context and is the main driver
+   of cost. Set design inline on add_layer ops and use \`ref_id\` to target new layers later in the same batch.
 
 ### When to Build from Scratch
 
-Only use \`batch_operations\` to build a section manually when no layout template fits the design, the
-user asked for a custom/unique layout, or you're adding a small custom section. Hand-building is the
-expensive path (large output every time) — reach for a layout first. When you do build manually,
-**always follow the mandatory structure** and do it in as few \`batch_operations\` calls as possible.
+Build a section manually only when no layout template fits, the user asked for a custom/unique
+layout, or the section is small. Follow the mandatory structure below, in as few
+\`batch_operations\` calls as possible.
 
 ### Mandatory Structure: section → container → content
 
@@ -474,15 +411,7 @@ batch_operations({ page_id: "...", operations: [
     text_content: "Build something amazing",
     design: { typography: { isActive: true, fontSize: "56px", fontWeight: "700", lineHeight: "1.05",
               letterSpacing: "-0.03em", textAlign: "center", textWrap: "balance" } } },
-  { type: "add_layer", parent_layer_id: "container", template: "text", ref_id: "subtitle",
-    text_content: "A short description that explains the value proposition clearly.",
-    design: { typography: { isActive: true, fontSize: "18px", lineHeight: "1.7", color: "#737373", textAlign: "center" },
-              sizing: { isActive: true, maxWidth: "560px" } } },
-  { type: "add_layer", parent_layer_id: "container", template: "button", ref_id: "cta", text_content: "Get Started",
-    design: { typography: { isActive: true, fontWeight: "500" },
-              spacing: { isActive: true, paddingTop: "12px", paddingBottom: "12px", paddingLeft: "24px", paddingRight: "24px" },
-              backgrounds: { isActive: true, backgroundColor: "#171717" },
-              borders: { isActive: true, borderRadius: "8px" } } },
+  // …more content ops (text, buttons, grids) follow the same shape…
   // Responsive: adjust for small screens with breakpoint update_design ops
   { type: "update_design", layer_id: "title", breakpoint: "mobile",
     design: { typography: { isActive: true, fontSize: "36px" } } },
@@ -495,28 +424,19 @@ Follow this shape for every section you build from scratch: design inline on add
 ref_ids for later targeting, multi-column grids on the container (gridTemplateColumns) that
 collapse to one column via a mobile-breakpoint update_design.
 
-### Self-check while building (no extra get_layers call)
-
-As you build, make sure each section satisfies these — verify from the ref_ids and design you just
-sent, NOT by re-fetching the tree:
-1. Every section has a container div child with maxWidth "1280px"
-2. Text elements have typography design (fontSize, fontWeight, lineHeight)
-3. No content sits directly in a section without a container
-4. Flex containers have flexDirection set
-5. Interactive elements have appropriate spacing (padding on buttons, gap on rows)
-
 ### Common Mistakes to AVOID
 
-- **NEVER** put text/heading/image directly inside a section — always wrap in a container div
+Verify these as you build, from the ref_ids and design you just sent — do NOT re-fetch the tree.
+batch_operations also returns \`design_warnings\` when your output violates these rules (structure,
+missing typography, low contrast) — fix every warning in your next batch before moving on:
+- **NEVER** put content directly inside a section or skip the container pattern (even for full-width backgrounds: the section handles the background, the container constrains the content). Sections group elements — no flat lists in body
 - **NEVER** leave text without typography design — always set fontSize, fontWeight, lineHeight
-- **NEVER** use a flat list of elements in body — always group into sections
-- **NEVER** forget to set \`isActive: true\` on design categories — properties won't apply without it
+- **NEVER** forget \`isActive: true\` on design categories — properties won't apply without it
 - **NEVER** set just width without maxWidth on containers — content will be too wide on large screens
-- **NEVER** use only padding for spacing between sibling elements — use gap on the parent flex container
+- **NEVER** use only padding for spacing between siblings — use gap on the parent flex container (and always set flexDirection)
 - **NEVER** create more than 4-5 different font sizes on a page — maintain typographic hierarchy
-- **NEVER** skip the container pattern even for full-width background sections — the section handles the background, the container constrains the content
-- **NEVER** build form fields from \`div\`, styled \`text\`, or \`htmlEmbed\` — ALWAYS use the native \`form\`, \`input\`, \`textarea\`, \`select\`, \`checkbox\`, \`radio\`, and \`label\` elements so submission, validation, and editing work
-- **NEVER** leave a badge, pill, tag, or button stretched full-width inside a flex column — flex children stretch by default (align-items: stretch). Set alignSelf "start"/"center" on the child (layout category), or alignItems on the parent, so it hugs its content. Padding + borderRadius alone will NOT fix this
+- **NEVER** build form fields from \`div\`, styled \`text\`, or \`htmlEmbed\` — only native form elements are wired for submission and validation
+- **NEVER** leave a badge, pill, tag, or button stretched full-width inside a flex column — set alignSelf "start"/"center" on it (see layout.alignSelf); padding + borderRadius alone will NOT fix this
 
 ### Typography Rules
 
@@ -526,8 +446,6 @@ Limit to 4-5 sizes per page for clean hierarchy:
 - **Card title / Subheading**: fontSize "20px"-"24px", fontWeight "600", lineHeight "1.3"
 - **Body text**: fontSize "16px"-"18px", fontWeight "400", lineHeight "1.6"
 - **Small text / Caption**: fontSize "14px", fontWeight "400"-"500", lineHeight "1.4"
-
-ALWAYS set lineHeight and fontWeight — never leave text with only fontSize.
 
 **Micro-typography (the polish that separates pro from generic):**
 - **Limit variety.** Few unique sizes AND few unique weights. Repeated elements (every card
@@ -544,7 +462,8 @@ ALWAYS set lineHeight and fontWeight — never leave text with only fontSize.
 - **Tighten large type.** Big headings (≥40px) read better with negative tracking
   (letterSpacing "-0.02em" to "-0.03em") and tight lineHeight ("1.05"–"1.1").
 
-Font pairings (use \`search_google_fonts\` + \`add_font\` first):
+Font pairings below are EXAMPLES, not the menu — search_google_fonts for a display face that
+fits the personality, then add_font. Give headings and body real contrast in size AND character:
 - "Playfair Display" + "DM Sans" — Editorial/elegant
 - "Sora" + "Plus Jakarta Sans" — Modern/clean
 - "DM Serif Display" + "DM Sans" — Classic/refined
@@ -560,27 +479,24 @@ Be generous — tight spacing looks amateur:
 
 ### Color Rules
 
-Pick ONE cohesive palette. Don't mix random colors.
+Pick ONE cohesive palette. Don't mix random colors. In creative mode (3), DERIVE it from
+your brief — real accent, neutrals tinted toward the brand hue, dark/vivid/duotone/gradient
+grounds where they fit. The neutrals below are a safe FALLBACK, not a default to reach for:
 
 **Light theme**: bg "#ffffff", text "#171717", secondary "#737373", accent one strong color
 **Dark theme**: bg "#0a0a0a", text "#ffffff", secondary "#a3a3a3", accent one bright color
-**Cards on light bg**: backgroundColor "#f5f5f5" or "#f9fafb"
-**Cards on dark bg**: backgroundColor "#1a1a1a" or "#18181b"
+**Cards**: nudge off the page bg — "#f5f5f5"/"#f9fafb" on light, "#1a1a1a"/"#18181b" on dark
 
 ### Design Details
+
+Subtle is ONE aesthetic — a bold direction may want 0-radius, hard shadows, or thick borders.
+The values below are the safe defaults:
 
 - **Border radius**: "12px" or "16px" for cards, "8px" for buttons, "9999px" for pills
 - **Shadows on cards**: boxShadow "0 1px 3px rgba(0,0,0,0.08)"
 - **Subtle borders**: borderWidth "1px", borderColor "rgba(0,0,0,0.06)"
 - **Button hover**: Use ui_state "hover" to darken background or add shadow
 - **Image aspect ratios**: Use aspectRatio "16/9" or "3/2" with objectFit "cover"
-
-### Batch Operations
-
-Use \`batch_operations\` whenever building more than 2-3 layers. It fetches the layer tree
-once, applies all operations, then saves once — much faster. Use \`ref_id\` in add_layer
-operations, then reference that ID in later operations within the same batch. Set design
-inline with add_layer (via the design field) to reduce the number of operations.
 
 ### Responsive Strategy
 
@@ -596,6 +512,108 @@ create_style to define the design once, apply_style to apply it to each element 
 the style later updates all elements using it. A layer can also stack multiple styles in
 priority order (combo classes) via set_layer_styles; see its description.
 `;
+
+/**
+ * Deep-dive guides for the deferred tool groups. SYSTEM_INSTRUCTIONS carries
+ * only a short summary of each area; the full guide is delivered exactly when
+ * it becomes relevant:
+ *  - in-app agent: returned in the load_tools result (or on auto-load) when
+ *    the group's tools join the conversation (see lib/agent/runtime.ts)
+ *  - MCP server: all guides appended statically, since external clients get
+ *    every tool up front (see lib/mcp/server.ts)
+ * This keeps ~1.2k tokens of components/CMS/i18n detail out of requests that
+ * never touch those tools.
+ */
+export const DEFERRED_GROUP_GUIDES: Record<string, string> = {
+  components: `### Components — Detailed Guide
+
+Each instance shares the master's structure but can override content via **variables**
+(text, rich_text, image, link, audio/video, icon, variant).
+
+Workflow: create_component (with variables) → update_component_layers to build the tree
+(works like batch_operations).
+
+**A variable does NOTHING until it is linked to a layer.** After you define variables you
+MUST link each one to the layer that shows it, or instances have nothing to override.
+Link either at creation (pass variable_id on the add_layer operation) or afterwards with a
+link_variable operation. The link target is derived automatically from the variable's
+declared type — text/rich_text bind the text layer, image/icon/video/audio bind that
+media layer's source, link binds the layer's link, variant binds a nested component
+instance's variant. You do not pass the type; just the layer and variable_id.
+
+Example: a "Feature Card" with title/description/image/button-link variables → add a
+heading (variable_id: title), a richText or text (variable_id: description), an image
+(variable_id: image), and a button whose link you bind with link_variable
+(variable_id: button-link). Read the component back with get_component to confirm each
+layer shows its linked variable before finishing.
+
+A component can have multiple named **variants** ("Default", "Small", "Dark") that share
+variables but have independent layer trees — see the component variant tools. Pass
+variant_id to update_component_layers to target one (omit for the primary variant).
+
+**Reusing a component on a page:** insert a real instance instead of rebuilding its markup.
+- add_component_instance — insert an instance under a parent layer (optional variant_id / position).
+- replace_layer_with_component — swap an existing layer for an instance in place (for "use component X instead of this layer").
+These create a proper component-instance layer that renders the master's tree; its children stay
+read-only. NEVER rebuild a component's markup by hand or embed it as rich text when an instance
+will do.
+
+**Customizing an instance:** a fresh instance shows the component's default content. To make
+several instances differ (e.g. a grid of cards each with its own title/image), use
+set_component_instance to override the instance's variables and/or switch its variant. Call
+get_component on the instance's componentId first to read the variable ids and types
+(get_layers also shows each instance's componentId, componentVariantId, and overrideSummary).
+Each override targets one variable_id; pass only the field for its type (text, asset_id, url,
+variant_id, etc.). Overriding does NOT change the master or other instances.
+
+**Detaching:** detach_component_instance converts an instance back into plain, editable layers
+on that page (breaks the link to the master). Use only when the user wants to edit the copy freely.
+
+**Componentizing:** create_component_from_layer turns an existing page layer + its subtree into a
+new component and replaces it in place with an instance ("make this a component").
+
+Editing the MASTER changes ALL instances: update_component_layers (structure/content), the
+variant tools, reorder_component_variants (first id = primary), and delete_component_variable
+(removes a variable and cleans up every link/override — prefer it over rewriting the variables
+list).`,
+
+  cms: `### CMS / Collections — Detailed Guide
+
+**Field types:** text, number, boolean, date (datetime), date_only, reference,
+multi_reference, rich_text, color, status, image, audio, video, document (multi-asset via
+\`data: { multiple: true }\`), link, email, phone, option, count.
+
+**Setting field values:** ALWAYS call list_collection_items first to read each field's id,
+type, and key — the value format depends on the type (see create_collection_item's
+description). rich_text fields take a **markdown string** (converted to Tiptap
+automatically); never raw HTML or plain text expecting formatting.
+
+**Collection lists on a page** — a \`collection\` element repeats its children once per item:
+
+1. **Bind** the list with bind_collection_layer (collection, sorting, limit, pagination;
+   also nested lists sourced from a reference field, and visitor-controlled sort inputs).
+2. **Filter** which items render with set_collection_filters (groups AND'd, conditions
+   within a group OR'd; supports the current-page item on dynamic pages and visitor-facing
+   filter inputs).
+3. **Bind child elements to fields** with bind_layer_field (text, image src/alt, video,
+   background). For multi-field text in one node ("$" + price + " / mo") use set_dynamic_text.
+4. **Link a card to the item's page:** update_layer_link with link_type "page",
+   page_id_target = the dynamic page, and NO collection_item_id — it resolves per item.
+
+Show/hide ANY layer conditionally (sale badges, empty states) with set_layer_visibility —
+same condition model as set_collection_filters.`,
+
+  localization: `### Locales & Translations — Detailed Guide
+
+- list_locales / create_locale (ISO 639-1 code, e.g. "fr").
+- Call list_translatable_content FIRST to discover exactly what can be translated and the
+  precise source_type/source_id/content_key — never guess content keys. It also surfaces
+  per-page component instance overrides, which are easy to miss.
+- set_translation for plain text; batch_set_translations for bulk; set_rich_text_translation
+  (structured blocks) for rich_text fields — plain text sent to a rich_text key will not render.
+- Translations are marked complete by default. Only pass is_completed: false for drafts —
+  incomplete translations NEVER appear on the live site. Translations stay drafts until published.`,
+};
 
 /**
  * Publishing guidance appended ONLY by the MCP server (external agents). The

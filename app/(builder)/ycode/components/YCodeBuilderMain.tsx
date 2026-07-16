@@ -54,6 +54,7 @@ const RealtimeCursors = lazy(() => import('@/components/realtime-cursors').then(
 // 3. Hooks
 // useCanvasCSS removed - now handled by iframe with Tailwind JIT CDN
 import { useEditorUrl } from '@/hooks/use-editor-url';
+import { useLiveFontUpdates } from '@/hooks/use-live-font-updates';
 import { useLiveLayerUpdates } from '@/hooks/use-live-layer-updates';
 import { useLivePageUpdates } from '@/hooks/use-live-page-updates';
 import { useLiveComponentUpdates } from '@/hooks/use-live-component-updates';
@@ -214,6 +215,8 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
   // Component and layer style sync hooks
   const liveComponentUpdates = useLiveComponentUpdates();
   const liveLayerStyleUpdates = useLiveLayerStyleUpdates();
+  // Refetch fonts when the AI agent installs one server-side
+  useLiveFontUpdates();
 
   // Collaboration presence - set current user for syncing
   const setCurrentCollaborationUser = useCollaborationPresenceStore((state) => state.setCurrentUser);

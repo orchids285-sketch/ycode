@@ -29,6 +29,7 @@ import {
   replaceLayerWithComponentInstance,
 } from '@/lib/layer-utils';
 import { EMPTY_OVERRIDES, createTextComponentVariableValue } from '@/lib/variable-utils';
+import { collectFontFamiliesFromDesign, ensureFontsInstalled, fontWarnings } from '@/lib/mcp/font-install';
 import { getCachedLayers as getPageLayers, saveCachedLayers } from '@/lib/mcp/page-layers';
 import { getAllPages } from '@/lib/repositories/pageRepository';
 import {
@@ -822,6 +823,9 @@ Pass variant_id to target a specific named variant; omit it to update the primar
 
       let layers = variants[targetIdx].layers || [];
       const refMap = new Map<string, string>();
+      // Custom fontFamily values these ops apply — missing ones are
+      // auto-installed from the Google Fonts catalog after the save.
+      const fontFamilies = new Set<string>();
       // Component variables by id, so we can derive the correct link type from
       // the component definition (never from the layer template) and validate
       // that a variable_id actually exists before linking.
@@ -849,6 +853,7 @@ Pass variant_id to target a specific named variant; omit it to update the primar
 
               if (op.design) {
                 newLayer = applyDesignToLayer(newLayer, op.design as Record<string, Record<string, unknown>>);
+                collectFontFamiliesFromDesign(op.design as Record<string, unknown>, fontFamilies);
               }
 
               if (op.image_asset_id && newLayer.variables?.image) {
@@ -885,6 +890,7 @@ Pass variant_id to target a specific named variant; omit it to update the primar
               layers = updateLayerById(layers, layerId, (l) =>
                 applyDesignToLayer(l, op.design as Record<string, Record<string, unknown>>, bp, state),
               );
+              collectFontFamiliesFromDesign(op.design as Record<string, unknown>, fontFamilies);
               results.push({ op: i, status: 'ok', detail: `Styled "${layer.customName || layer.name}"` });
               break;
             }
@@ -1024,6 +1030,10 @@ Pass variant_id to target a specific named variant; omit it to update the primar
       await updateComponent(component_id, { variants: updatedVariants });
       broadcastComponentLayersUpdated(component_id, updatedVariants[0].layers).catch(() => {});
 
+      // Auto-install any Google Font these ops referenced but never added.
+      const fonts = await ensureFontsInstalled(fontFamilies);
+      const warnings = fontWarnings(fonts);
+
       const refEntries = Object.fromEntries(refMap);
       return {
         content: [{
@@ -1032,6 +1042,8 @@ Pass variant_id to target a specific named variant; omit it to update the primar
             message: `Executed ${results.filter((r) => r.status === 'ok').length}/${operations.length} operations`,
             ref_ids: Object.keys(refEntries).length > 0 ? refEntries : undefined,
             results,
+            fonts_auto_installed: fonts.installed.length > 0 ? fonts.installed : undefined,
+            design_warnings: warnings.length > 0 ? warnings : undefined,
           }),
         }],
       };

@@ -55,6 +55,10 @@ export function createOpenAiProvider(apiKey: string): AgentProvider {
         {
           model: options.model,
           max_completion_tokens: options.maxTokens,
+          // Design/building work doesn't benefit from deep reasoning the way
+          // code does (Framer measured no eval difference), so default OpenAI
+          // reasoning models to low effort — faster and cheaper per turn.
+          ...(isReasoningModel(options.model) ? { reasoning_effort: 'low' as const } : {}),
           messages: [
             { role: 'system', content: options.system },
             ...toOpenAiMessages(options.messages),
@@ -178,6 +182,11 @@ function toOpenAiMessages(messages: AgentMessage[]): OpenAI.Chat.Completions.Cha
   }
 
   return out;
+}
+
+/** Models that accept the `reasoning_effort` parameter (GPT-5 family and o-series). */
+function isReasoningModel(model: string): boolean {
+  return /^(gpt-5|o\d)/.test(model);
 }
 
 /** Tool input arrives as streamed partial JSON; empty means a no-arg tool. */

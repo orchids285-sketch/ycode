@@ -15,6 +15,7 @@ import {
 } from '@/lib/mcp/utils';
 import type { RichTextBlock } from '@/lib/mcp/utils';
 import { layerToExportHtml } from '@/lib/html-layer-converter';
+import { collectFontFamiliesFromDesign, ensureFontsInstalled, fontWarnings } from '@/lib/mcp/font-install';
 import { getCachedLayers as getPageLayers, saveCachedLayers } from '@/lib/mcp/page-layers';
 import { designSchema, richTextBlockSchema, templateEnum } from './shared-schemas';
 
@@ -143,6 +144,12 @@ For gradient text: also set backgroundClip: "text" and color to "transparent".`,
 
       await savePageLayers(page_id, updated);
 
+      // Auto-install any Google Font this edit referenced but never added.
+      const fontFamilies = new Set<string>();
+      collectFontFamiliesFromDesign(design as Record<string, unknown>, fontFamilies);
+      const fonts = await ensureFontsInstalled(fontFamilies);
+      const warnings = fontWarnings(fonts);
+
       const updatedLayer = findLayerById(updated, layer_id);
       const stateLabel = ui_state !== 'neutral' ? ` (${ui_state} state)` : '';
       const bpLabel = breakpoint !== 'desktop' ? ` [${breakpoint}]` : '';
@@ -154,6 +161,8 @@ For gradient text: also set backgroundClip: "text" and color to "transparent".`,
             layer_id,
             classes: updatedLayer?.classes,
             design: updatedLayer?.design,
+            fonts_auto_installed: fonts.installed.length > 0 ? fonts.installed : undefined,
+            design_warnings: warnings.length > 0 ? warnings : undefined,
           }),
         }],
       };

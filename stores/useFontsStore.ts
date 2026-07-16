@@ -35,6 +35,7 @@ interface FontsState {
 
 interface FontsActions {
   loadFonts: () => Promise<void>;
+  refreshFonts: () => Promise<void>;
   setFonts: (fonts: Font[]) => void;
   addFont: (font: Font) => void;
   removeFont: (fontId: string) => void;
@@ -90,6 +91,24 @@ export const useFontsStore = create<FontsStore>((set, get) => ({
         isLoading: false,
         error: error instanceof Error ? error.message : 'Failed to load fonts',
       });
+    }
+  },
+
+  /**
+   * Re-fetch fonts from the API even if already loaded. Used when fonts change
+   * server-side (e.g. the AI agent installs a font) so the canvas picks them
+   * up without a page reload.
+   */
+  refreshFonts: async () => {
+    try {
+      const response = await fetch('/ycode/api/fonts');
+      if (!response.ok) throw new Error('Failed to fetch fonts');
+
+      const { data: fonts } = await response.json();
+      set({ fonts: fonts || [], isLoaded: true });
+      get().rebuildCss();
+    } catch (error) {
+      console.error('Failed to refresh fonts:', error);
     }
   },
 
