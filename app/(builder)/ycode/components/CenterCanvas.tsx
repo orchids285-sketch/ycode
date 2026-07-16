@@ -92,6 +92,7 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import TemplatesMenu from './TemplatesMenu';
 import AdFormatMenu from './AdFormatMenu';
 import ExportCreativeButton from './ExportCreativeButton';
 
@@ -154,6 +155,8 @@ function ViewportZoomControls({
           <TabsTrigger value="mobile" title="Mobile View">Phone</TabsTrigger>
         </TabsList>
       </Tabs>
+      {/* Start from a ready-made ad composition */}
+      <TemplatesMenu />
       {/* Ad-format presets — size the creative to a standard ad canvas */}
       <AdFormatMenu />
       {/* Export the sized creative as a downloadable image (PNG/JPG) */}

@@ -2,9 +2,10 @@
 
 /**
  * Export the current creative as an image — the "produce the ad file" step.
- * Captures the sized creative frame (#canvas-body, at the chosen ad format)
- * from the same-origin design iframe using html-to-image (already a dependency).
- * Styled with the editor's own Button + DropdownMenu + Icon primitives.
+ * Captures the sized creative frame (the iframe's <body>, which carries the
+ * chosen ad-format size classes) from the same-origin design iframe using
+ * html-to-image (already a dependency). Styled with the editor's own
+ * Button + DropdownMenu + Icon primitives.
  */
 import { useState } from 'react';
 import { toPng, toJpeg } from 'html-to-image';

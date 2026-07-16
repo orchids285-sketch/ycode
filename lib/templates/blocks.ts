@@ -14,6 +14,7 @@ import { mediaTemplates } from './media';
 import { formTemplates } from './forms';
 import { utilityTemplates } from './utilities';
 import { layoutTemplates } from './layouts';
+import { creativeTemplates } from './creatives';
 
 // Merge all template categories
 const blocks = {
@@ -23,6 +24,7 @@ const blocks = {
   ...mediaTemplates,
   ...formTemplates,
   ...utilityTemplates,
+  ...creativeTemplates,
 };
 
 /**
