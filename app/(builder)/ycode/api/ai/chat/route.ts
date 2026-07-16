@@ -58,8 +58,17 @@ export async function POST(request: NextRequest) {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
   try {
+    // Curated, essential editing tools only. The full MCP toolset (20+ tools) is
+    // ~40k tokens of schema per request — too heavy. This focused set covers the
+    // "carte blanche" (structure, text, images, design/sizes/colors, links) while
+    // keeping each request small enough for any model/quota.
+    const ALLOW = new Set(
+      (process.env.AI_TOOLS ||
+        'list_pages,get_page,add_layer,delete_layer,move_layer,update_layer_text,update_text,set_rich_text_content,update_layer_design,update_layer_image,update_layer_background_image,update_layer_link,update_layer_settings')
+        .split(',').map((s) => s.trim()),
+    );
     const { tools: mcpTools } = await client.listTools();
-    const tools = mcpTools.map(toOpenAITool);
+    const tools = mcpTools.filter((t) => ALLOW.has(t.name)).map(toOpenAITool);
 
     const system = [
       'You are the built-in AI design copilot inside the Ycode visual website editor.',
