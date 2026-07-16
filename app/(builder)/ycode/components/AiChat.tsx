@@ -12,6 +12,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
+import { getLayerFromTemplate } from '@/lib/templates/blocks';
+import { getTiptapTextContent } from '@/lib/text-format-utils';
+import type { Layer } from '@/types';
 
 type Msg = { role: 'user' | 'assistant'; content: string; edited?: boolean };
 
@@ -97,6 +100,130 @@ function runLocalCommand(text: string, pageId: string): string | null {
   return cap.join(', ') + '.';
 }
 
+// --- Prompt → ad generator (fuel-free) -------------------------------------
+// Builds a CUSTOM ad from a free-text brief: extracts the offer/subject and a
+// call-to-action, picks a base template, rewrites its text with the user's own
+// words, then inserts it (reusing getLayerFromTemplate + addLayerWithId) and
+// applies any requested format/background. Not an LLM, but it genuinely
+// generates a tailored ad from a sentence.
+const CTA_PHRASES = [
+  'shop now', 'buy now', 'order now', 'get started', 'sign up', 'sign-up', 'register now', 'register',
+  'join the waitlist', 'join now', 'join', 'learn more', 'download now', 'download', 'subscribe',
+  'book now', 'book a demo', 'try for free', 'try free', 'start free', 'get yours', 'claim offer',
+  'claim your discount', 'see more', 'discover more', 'get the deal', 'save my seat', 'reserve your spot',
+];
+const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+const sentenceCase = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+function extractCTA(t: string): string | null {
+  for (const p of CTA_PHRASES) { if (t.includes(p)) return titleCase(p); }
+  return null;
+}
+
+function extractContent(raw: string): { headline: string; eyebrow: string; subline: string } | null {
+  const t = raw.toLowerCase();
+  let headline: string | null = null;
+
+  const offer = raw.match(/(\d{1,3})\s?%\s?off/i);
+  const price = raw.match(/(?:^|\s)(\$\s?\d+(?:\.\d{1,2})?)/);
+  const quote = raw.match(/["“”']([^"“”']{3,70})["“”']/);
+  const subjectM =
+    raw.match(/\b(?:ad|advert(?:isement)?|creative|banner|campaign|poster|flyer)\s+(?:for|about|promoting)\s+(.+?)(?:[.,;]| with | in | using | that | featuring |$)/i) ||
+    raw.match(/\b(?:promote|advertise|market|sell)\s+(.+?)(?:[.,;]| with | in | to |$)/i);
+
+  if (offer) headline = `${offer[1]}% OFF`;
+  else if (price) headline = titleCase(price[1].replace(/\s/g, ''));
+  else if (quote) headline = quote[1].trim();
+  else if (subjectM && subjectM[1]) {
+    const subj = subjectM[1].trim().split(/\s+/).slice(0, 6).join(' ');
+    if (subj.length >= 2) headline = titleCase(subj);
+  }
+  if (!headline) return null; // not enough content — let the command layer handle it
+
+  // eyebrow from a recognizable occasion / tag
+  const occ = t.match(/black friday|cyber monday|flash sale|new arrival|limited time|clearance|grand opening|early access|now open|free webinar/);
+  const eyebrow = occ ? occ[0].toUpperCase() : (offer ? 'LIMITED TIME OFFER' : 'NEW');
+
+  // subline: prefer the subject if the headline was an offer/quote; else a leftover phrase
+  let subline = '';
+  if ((offer || price || quote) && subjectM && subjectM[1]) {
+    subline = sentenceCase(subjectM[1].trim().split(/\s+/).slice(0, 10).join(' '));
+  }
+  if (!subline) {
+    const leftover = raw
+      .replace(/\b(make|create|generate|design|build|do|please|a|an|the|ad|advert(?:isement)?|creative|banner|for|about)\b/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    if (leftover.split(' ').length >= 3) subline = sentenceCase(leftover.split(/\s+/).slice(0, 12).join(' '));
+  }
+  if (!subline) subline = offer ? 'For a limited time only.' : 'Find out more today.';
+
+  return { headline, eyebrow, subline };
+}
+
+function pickTemplate(t: string): string {
+  if (/webinar|event|register|seminar|workshop|conference/.test(t)) return 'ad-event';
+  if (/testimonial|review|["“”']/.test(t)) return 'ad-testimonial';
+  if (/launch|announce|coming soon|waitlist|pre-?order/.test(t)) return 'ad-launch';
+  if (/coupon|code|voucher/.test(t)) return 'ad-discount';
+  return 'ad-promo';
+}
+
+function setLayerText(node: Layer, text: string) {
+  node.variables = {
+    ...(node.variables || {}),
+    text: { type: 'dynamic_rich_text', data: { content: getTiptapTextContent(text) } },
+  } as Layer['variables'];
+}
+
+// Fill the template tree with the extracted copy (headline / eyebrow / subline / cta).
+function rewriteAdTree(root: Layer, copy: { headline: string; eyebrow: string; subline: string; cta: string | null }) {
+  const headings: Layer[] = [];
+  const paras: Layer[] = [];
+  const btnTexts: Layer[] = [];
+  const walk = (node: Layer, parent: Layer | null) => {
+    if (node.name === 'heading') headings.push(node);
+    else if (node.name === 'text') (parent && parent.name === 'button' ? btnTexts : paras).push(node);
+    (node.children || []).forEach((c) => walk(c, node));
+  };
+  walk(root, null);
+  if (headings[0]) setLayerText(headings[0], copy.headline);
+  if (btnTexts[0] && copy.cta) setLayerText(btnTexts[0], copy.cta);
+  if (paras.length >= 2) {
+    setLayerText(paras[0], copy.eyebrow);
+    setLayerText(paras[paras.length - 1], copy.subline);
+  } else if (paras.length === 1) {
+    setLayerText(paras[0], copy.subline);
+  }
+}
+
+function generateAdFromPrompt(text: string, pageId: string): string | null {
+  const t = ' ' + text.toLowerCase() + ' ';
+  const content = extractContent(text);
+  if (!content) return null; // no real ad content → fall back to command layer
+
+  const templateId = pickTemplate(t);
+  const tree = getLayerFromTemplate(templateId);
+  if (!tree) return null;
+  const cta = extractCTA(t);
+  rewriteAdTree(tree, { ...content, cta });
+
+  const store = usePagesStore.getState();
+  store.addLayerWithId(pageId, 'body', tree);
+
+  const applied: string[] = [`generated a custom ad — “${content.headline}”`];
+  const bodyLayer = () => usePagesStore.getState().draftsByPageId[pageId]?.layers?.[0];
+  for (const [re, w, h, label] of FORMAT_KEYWORDS) {
+    const body = bodyLayer();
+    if (re.test(t) && body) { usePagesStore.getState().updateLayerClasses(pageId, body.id, mergeSize(body.classes, `w-[${w}px] h-[${h}px] mx-auto overflow-hidden`)); applied.push(`format ${label} (${w}×${h})`); break; }
+  }
+  for (const [re, classes, label] of BG_KEYWORDS) {
+    const body = bodyLayer();
+    if (re.test(t) && body) { usePagesStore.getState().updateLayerClasses(pageId, body.id, mergeBg(body.classes, classes)); applied.push(`${label} background`); break; }
+  }
+  void usePagesStore.getState().saveDraft(pageId);
+  return sentenceCase(applied.join(', ')) + '. Edit any text right on the canvas.';
+}
+
 function SendIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
@@ -125,7 +252,14 @@ export default function AiChat() {
     setMessages(next);
     setInput('');
 
-    // Try the offline command layer first — instant, no LLM key needed.
+    // Offline, no LLM key needed: first try to GENERATE a custom ad from the
+    // brief; if it isn't a content brief, fall back to the simple command layer
+    // (templates / formats / backgrounds). Anything else goes to the LLM route.
+    const generated = generateAdFromPrompt(text, currentPageId);
+    if (generated) {
+      setMessages((m) => [...m, { role: 'assistant', content: generated, edited: true }]);
+      return;
+    }
     const local = runLocalCommand(text, currentPageId);
     if (local) {
       setMessages((m) => [...m, { role: 'assistant', content: local, edited: true }]);

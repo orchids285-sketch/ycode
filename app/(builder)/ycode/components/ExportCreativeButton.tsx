@@ -131,10 +131,18 @@ export default function ExportCreativeButton() {
       // captureStream isn't in every TS DOM lib version — cast to keep the build green.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stream = (canvas as any).captureStream(fps) as MediaStream;
+      // Prefer MP4/H.264 (what ad platforms want) when the browser can record it
+      // (Chrome 130+); otherwise fall back to WebM. No transcoding library needed.
       const mime =
-        ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(
-          (m) => MediaRecorder.isTypeSupported(m),
-        ) || 'video/webm';
+        [
+          'video/mp4;codecs=avc1.640028',
+          'video/mp4;codecs=h264',
+          'video/mp4',
+          'video/webm;codecs=vp9',
+          'video/webm;codecs=vp8',
+          'video/webm',
+        ].find((m) => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+      const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
       const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
       const chunks: Blob[] = [];
       rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
@@ -158,7 +166,7 @@ export default function ExportCreativeButton() {
 
       const blob = new Blob(chunks, { type: mime });
       const url = URL.createObjectURL(blob);
-      download(url, `creative-${w}x${h}-${motion}.webm`);
+      download(url, `creative-${w}x${h}-${motion}.${ext}`);
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -192,7 +200,7 @@ export default function ExportCreativeButton() {
           <span className="text-muted-foreground text-xs">1×</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>Video (WebM · 4s)</DropdownMenuLabel>
+        <DropdownMenuLabel>Video (MP4 · 4s)</DropdownMenuLabel>
         <DropdownMenuItem onClick={() => exportVideo('zoom')}>
           <span className="flex-1">Zoom in</span>
           <span className="text-muted-foreground text-xs">motion</span>
