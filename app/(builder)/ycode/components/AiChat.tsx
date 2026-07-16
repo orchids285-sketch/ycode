@@ -108,7 +108,7 @@ export default function AiChat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask AI to change anything…"
+            placeholder=""
             rows={2}
             className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-[13px] px-3 py-2.5"
           />

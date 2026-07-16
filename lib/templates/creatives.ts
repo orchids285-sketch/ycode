@@ -161,6 +161,53 @@ export const creativeTemplates: Record<string, BlockTemplate> = {
       ],
     },
   },
+
+  'ad-discount': {
+    icon: 'zap',
+    name: 'Discount code',
+    template: {
+      name: 'div',
+      customName: 'Discount ad',
+      classes: frame(['bg-[#fef3c7]', 'gap-[24px]']),
+      design: {
+        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '24px' },
+        backgrounds: { isActive: true, backgroundColor: '#fef3c7' },
+      },
+      children: [
+        heading('Get 20% off', ['text-[92px]', 'font-[800]', 'leading-[1]', 'text-[#111111]'],
+          { fontSize: '92px', fontWeight: '800', lineHeight: '1', color: '#111111' }, 'h1'),
+        paragraph('Your first order — for a limited time.', ['text-[24px]', 'text-[#78350f]'],
+          { fontSize: '24px', color: '#78350f' }),
+        paragraph('CODE: SAVE20',
+          ['text-[26px]', 'font-[700]', 'tracking-[0.15em]', 'text-[#111111]', 'border-[2px]', 'border-dashed', 'border-[#111111]', 'rounded-[12px]', 'pt-[14px]', 'pb-[14px]', 'pl-[28px]', 'pr-[28px]'],
+          { fontSize: '26px', fontWeight: '700', letterSpacing: '0.15', color: '#111111' }),
+      ],
+    },
+  },
+
+  'ad-event': {
+    icon: 'calendar',
+    name: 'Webinar / Event',
+    template: {
+      name: 'div',
+      customName: 'Event ad',
+      classes: frame(['bg-[#0f172a]', 'gap-[22px]']),
+      design: {
+        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '22px' },
+        backgrounds: { isActive: true, backgroundColor: '#0f172a' },
+      },
+      children: [
+        paragraph('FREE WEBINAR', ['text-[18px]', 'font-[700]', 'tracking-[0.25em]', 'text-[#38bdf8]'],
+          { fontSize: '18px', fontWeight: '700', letterSpacing: '0.25', color: '#38bdf8' }),
+        heading('Scaling ads without burning budget', ['text-[60px]', 'font-[800]', 'leading-[1.1]', 'text-[#ffffff]'],
+          { fontSize: '60px', fontWeight: '800', lineHeight: '1.1', color: '#ffffff' }, 'h1'),
+        paragraph('Thursday, March 14 · 11am PT', ['text-[22px]', 'text-[#cbd5e1]'],
+          { fontSize: '22px', color: '#cbd5e1' }),
+        button('Save my seat', ['flex', 'flex-row', 'items-center', 'justify-center', 'mt-[8px]', 'h-[56px]', 'pl-[32px]', 'pr-[32px]', 'text-[18px]', 'font-[600]', 'rounded-[14px]', 'text-[#0f172a]', 'bg-[#38bdf8]'],
+          '#0f172a', '#38bdf8'),
+      ],
+    },
+  },
 };
 
 export const CREATIVE_TEMPLATE_KEYS = Object.keys(creativeTemplates);

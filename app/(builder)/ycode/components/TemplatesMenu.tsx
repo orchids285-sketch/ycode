@@ -24,6 +24,8 @@ const TEMPLATES: { id: string; label: string; icon: IconProps['name'] }[] = [
   { id: 'ad-product', label: 'Product spotlight', icon: 'image' },
   { id: 'ad-testimonial', label: 'Testimonial', icon: 'quote' },
   { id: 'ad-launch', label: 'Launch / Announcement', icon: 'zap' },
+  { id: 'ad-discount', label: 'Discount code', icon: 'zap' },
+  { id: 'ad-event', label: 'Webinar / Event', icon: 'calendar' },
 ];
 
 export default function TemplatesMenu() {
