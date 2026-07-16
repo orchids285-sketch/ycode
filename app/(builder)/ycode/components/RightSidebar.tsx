@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import AiChat from './AiChat';
+import { useResizableSidebar } from '@/hooks/use-resizable-sidebar';
 
 // 4. Internal components
 import AddAttributeModal from './AddAttributeModal';
@@ -189,8 +190,10 @@ const RightSidebar = React.memo(function RightSidebar({
   const [activeTab, setActiveTab] = useState<'design' | 'settings' | 'interactions' | 'chat' | undefined>(
     urlState.rightTab || 'design'
   );
-  // Chat AI panel can be widened (extensible) when active.
-  const [chatExpanded, setChatExpanded] = useState(false);
+  // Resizable right panel (drag the left edge; double-click resets). Wider default
+  // so the 4 tabs (Design/Settings/Interactions/Chat AI) fit without cramping.
+  const { width: rightWidth, isDragging: rightResizing, handleMouseDown: rightResizeMouseDown } =
+    useResizableSidebar({ side: 'right', defaultWidth: 300, minWidth: 260, maxWidth: 720 });
 
   // Track last user-initiated change to prevent URL→state sync loops
   const lastUserChangeRef = useRef<number>(0);
@@ -1935,7 +1938,14 @@ const RightSidebar = React.memo(function RightSidebar({
     // No layer selected: the Design/Settings/Interactions tabs need one, but the
     // Chat AI copilot works on the whole page — keep the tab bar so it's reachable.
     return (
-      <div className={`${activeTab === 'chat' && chatExpanded ? 'w-[560px]' : 'w-64'} shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden transition-[width] duration-150`}>
+      <div style={{ width: rightWidth }} className="shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden relative">
+        <div
+          onMouseDown={rightResizeMouseDown}
+          className="absolute top-0 -left-1.5 w-3 h-full cursor-col-resize z-30 flex items-center justify-center group/resize"
+        >
+          <div className="w-0.5 h-full bg-transparent group-hover/resize:bg-primary/50 group-active/resize:bg-primary/70 transition-colors" />
+        </div>
+        {rightResizing && <div className="fixed inset-0 z-50 cursor-col-resize" />}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col flex-1 min-h-0 gap-0">
           <TabsList className="w-full">
             <TabsTrigger value="design">Design</TabsTrigger>
@@ -1945,7 +1955,7 @@ const RightSidebar = React.memo(function RightSidebar({
           </TabsList>
           <hr className="mt-4" />
           <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden overflow-hidden -mx-4">
-            <AiChat expanded={chatExpanded} onToggleExpand={() => setChatExpanded((v) => !v)} />
+            <AiChat />
           </TabsContent>
           {activeTab !== 'chat' && (
             <div className="flex-1 flex items-center justify-center">
@@ -1979,7 +1989,15 @@ const RightSidebar = React.memo(function RightSidebar({
   }
 
   return (
-    <div className={`${activeTab === 'chat' && chatExpanded ? 'w-[560px]' : 'w-64'} shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden transition-[width] duration-150`}>
+    <div style={{ width: rightWidth }} className="shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden relative">
+      {/* Resize handle — drag the left edge to widen; double-click resets */}
+      <div
+        onMouseDown={rightResizeMouseDown}
+        className="absolute top-0 -left-1.5 w-3 h-full cursor-col-resize z-30 flex items-center justify-center group/resize"
+      >
+        <div className="w-0.5 h-full bg-transparent group-hover/resize:bg-primary/50 group-active/resize:bg-primary/70 transition-colors" />
+      </div>
+      {rightResizing && <div className="fixed inset-0 z-50 cursor-col-resize" />}
       {/* Tabs.
           When the user is translating (non-default locale active) we keep the
           tab list visible but disable Design + Interactions and force the
@@ -2003,7 +2021,7 @@ const RightSidebar = React.memo(function RightSidebar({
 
         {/* Chat AI tab — the copilot lives in the same tab bar as Design/Settings/Interactions */}
         <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden overflow-hidden -mx-4">
-          <AiChat expanded={chatExpanded} onToggleExpand={() => setChatExpanded((v) => !v)} />
+          <AiChat />
         </TabsContent>
 
         {/* Design tab */}

@@ -22,19 +22,8 @@ function SendIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-function ExpandIcon({ className, expanded }: { className?: string; expanded?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
-      {expanded ? (
-        <path d="M9 9l-5-5M4 9V4h5M15 15l5 5M20 15v5h-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      ) : (
-        <path d="M4 14v5h5M9 4H4v5M20 10V5h-5M15 20h5v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      )}
-    </svg>
-  );
-}
 
-export default function AiChat({ expanded, onToggleExpand }: { expanded?: boolean; onToggleExpand?: () => void }) {
+export default function AiChat() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,21 +109,10 @@ export default function AiChat({ expanded, onToggleExpand }: { expanded?: boolea
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Ask AI to change anything…"
-            rows={expanded ? 3 : 2}
+            rows={2}
             className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-[13px] px-3 py-2.5"
           />
           <div className="flex items-center gap-1 px-2 pb-2">
-            {onToggleExpand && (
-              <button
-                type="button"
-                onClick={onToggleExpand}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
-                aria-label={expanded ? 'Collapse' : 'Expand'}
-                title={expanded ? 'Collapse' : 'Expand'}
-              >
-                <ExpandIcon className="size-4" expanded={expanded} />
-              </button>
-            )}
             <button
               type="button"
               onClick={() => void send()}
