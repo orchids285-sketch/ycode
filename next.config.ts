@@ -28,6 +28,7 @@ if (process.env.SUPABASE_URL) {
 }
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   trailingSlash: false,
   staticPageGenerationTimeout: 120,
   experimental: {
