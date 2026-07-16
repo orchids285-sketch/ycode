@@ -56,30 +56,27 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         return;
       }
 
-      // Validate session server-side (getUser verifies the JWT, unlike getSession)
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (user) {
-        // Refresh the session so the JWT contains the latest app_metadata
-        // (role changes via Admin API don't update existing JWTs)
-        await supabase.auth.refreshSession();
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
+      // NO-AUTH mode: no login screen — always a single default owner, regardless
+      // of session. Server-side APIs run as this same owner (lib/supabase-auth.ts).
+      const user = {
+        id: '00000000-0000-0000-0000-000000000001',
+        email: 'creatives@foundreach.local',
+        app_metadata: { role: 'owner', provider: 'noauth' },
+        user_metadata: {},
+        aud: 'authenticated',
+        role: 'authenticated',
+        created_at: new Date(0).toISOString(),
+      } as unknown as User;
 
       set({
-        user: user ?? null,
-        session: user ? session : null,
+        user,
+        session: null,
         role: extractRoleFromUser(user),
         initialized: true,
       });
 
-      supabase.auth.onAuthStateChange((_event, session) => {
-        set({
-          user: session?.user ?? null,
-          session,
-          role: extractRoleFromUser(session?.user ?? null),
-        });
+      supabase.auth.onAuthStateChange(() => {
+        // Ignore auth changes in no-auth mode — stay the default owner.
       });
     } catch (error) {
       console.error('Failed to initialize auth:', error);
