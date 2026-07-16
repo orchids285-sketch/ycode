@@ -13,8 +13,12 @@ import { createMcpServer } from '@/lib/mcp/server';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
+// Provider-agnostic (any OpenAI-compatible chat endpoint): OpenRouter, Groq,
+// OpenAI, or the user's own key. Configure via AI_API_URL / AI_API_KEY / AI_MODEL,
+// falling back to the OPENROUTER_* vars.
+const API_URL =
+  (process.env.AI_API_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '') + '/chat/completions';
+const MODEL = process.env.AI_MODEL || process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
 const MAX_STEPS = 24;
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_calls?: any[]; tool_call_id?: string; name?: string };
@@ -32,9 +36,9 @@ function toOpenAITool(t: { name: string; description?: string; inputSchema?: any
 }
 
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.AI_API_KEY || process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'AI is not configured (missing OPENROUTER_API_KEY).' }, { status: 400 });
+    return NextResponse.json({ error: 'AI is not configured (missing AI_API_KEY / OPENROUTER_API_KEY).' }, { status: 400 });
   }
 
   let body: { messages?: { role: string; content: string }[]; page_id?: string; selected_layer_id?: string | null };
@@ -81,7 +85,7 @@ export async function POST(request: NextRequest) {
     let finalText = '';
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const res = await fetch(OPENROUTER_URL, {
+      const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
