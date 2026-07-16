@@ -15,6 +15,85 @@ import { usePagesStore } from '@/stores/usePagesStore';
 
 type Msg = { role: 'user' | 'assistant'; content: string; edited?: boolean };
 
+// --- Offline command layer -------------------------------------------------
+// So the assistant DOES something even without a configured LLM key: recognise
+// the common ad moves and drive the exact same store actions the toolbar menus
+// use (templates / formats / backgrounds). Anything not matched falls through
+// to the real (generative) LLM route.
+const TEMPLATE_KEYWORDS: [RegExp, string, string][] = [
+  [/promo|sale|discount|deal|%\s?off|percent off/, 'ad-promo', 'Promo / Sale'],
+  [/product|spotlight|feature/, 'ad-product', 'Product spotlight'],
+  [/testimonial|review|quote|rating|stars?/, 'ad-testimonial', 'Testimonial'],
+  [/launch|announce|announcement|coming soon|waitlist/, 'ad-launch', 'Launch / Announcement'],
+  [/coupon|code|voucher/, 'ad-discount', 'Discount code'],
+  [/webinar|event|register|seminar|workshop/, 'ad-event', 'Webinar / Event'],
+];
+const FORMAT_KEYWORDS: [RegExp, number, number, string][] = [
+  [/square|1:1|feed post/, 1080, 1080, 'Square'],
+  [/story|reel|9:16/, 1080, 1920, 'Story / Reel'],
+  [/portrait|4:5/, 1080, 1350, 'Portrait'],
+  [/landscape|16:9|wide/, 1200, 675, 'Landscape'],
+  [/facebook feed|fb feed|1\.91/, 1200, 628, 'Feed'],
+  [/pinterest|2:3/, 1000, 1500, 'Pinterest'],
+  [/youtube|thumbnail/, 1280, 720, 'YouTube thumbnail'],
+];
+const BG_KEYWORDS: [RegExp, string[], string][] = [
+  [/gradient/, ['bg-gradient-to-br', 'from-[#4f46e5]', 'to-[#9333ea]'], 'gradient'],
+  [/dark|black/, ['bg-[#111111]'], 'dark'],
+  [/white/, ['bg-[#ffffff]'], 'white'],
+  [/navy|slate|dark blue/, ['bg-[#0f172a]'], 'navy'],
+  [/indigo|purple|violet/, ['bg-[#4f46e5]'], 'indigo'],
+  [/red|crimson/, ['bg-[#dc2626]'], 'red'],
+  [/green|emerald/, ['bg-[#059669]'], 'green'],
+  [/amber|yellow|gold/, ['bg-[#f5c542]'], 'amber'],
+  [/pink|magenta/, ['bg-[#ec4899]'], 'pink'],
+];
+
+const SIZE_RE = /^(w-\[|h-\[|max-w-|min-w-|min-h-|max-h-)/;
+const BG_RE = /^(bg-|from-|to-|via-)/;
+function toStr(c: string | string[] | undefined): string {
+  return Array.isArray(c) ? c.join(' ') : c || '';
+}
+function mergeSize(existing: string | string[] | undefined, size: string): string {
+  const kept = toStr(existing).split(/\s+/).filter(Boolean).filter((c) => !SIZE_RE.test(c) && c !== 'mx-auto' && c !== 'overflow-hidden');
+  return [...kept, ...size.split(' ').filter(Boolean)].join(' ').trim();
+}
+function mergeBg(existing: string | string[] | undefined, bg: string[]): string {
+  const kept = toStr(existing).split(/\s+/).filter(Boolean).filter((c) => !BG_RE.test(c));
+  return [...kept, ...bg].join(' ').trim();
+}
+
+function runLocalCommand(text: string, pageId: string): string | null {
+  const t = ' ' + text.toLowerCase() + ' ';
+  const store = usePagesStore.getState();
+  const applied: string[] = [];
+
+  for (const [re, id, label] of TEMPLATE_KEYWORDS) {
+    if (re.test(t)) { store.addLayerFromTemplate(pageId, 'body', id); applied.push(`added a “${label}” layout`); break; }
+  }
+  let body = store.draftsByPageId[pageId]?.layers?.[0];
+  for (const [re, w, h, label] of FORMAT_KEYWORDS) {
+    if (re.test(t) && body) {
+      store.updateLayerClasses(pageId, body.id, mergeSize(body.classes, `w-[${w}px] h-[${h}px] mx-auto overflow-hidden`));
+      applied.push(`set the format to ${label} (${w}×${h})`);
+      break;
+    }
+  }
+  body = store.draftsByPageId[pageId]?.layers?.[0];
+  for (const [re, classes, label] of BG_KEYWORDS) {
+    if (re.test(t) && body) {
+      store.updateLayerClasses(pageId, body.id, mergeBg(body.classes, classes));
+      applied.push(`set a ${label} background`);
+      break;
+    }
+  }
+
+  if (!applied.length) return null;
+  void store.saveDraft(pageId);
+  const cap = applied.map((s, i) => (i === 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s));
+  return cap.join(', ') + '.';
+}
+
 function SendIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
@@ -42,6 +121,14 @@ export default function AiChat() {
     const next: Msg[] = [...messages, { role: 'user', content: text }];
     setMessages(next);
     setInput('');
+
+    // Try the offline command layer first — instant, no LLM key needed.
+    const local = runLocalCommand(text, currentPageId);
+    if (local) {
+      setMessages((m) => [...m, { role: 'assistant', content: local, edited: true }]);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/ycode/api/ai/chat', {
