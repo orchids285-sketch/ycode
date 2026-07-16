@@ -108,15 +108,11 @@ async function verifyApiAuth(request: NextRequest): Promise<NextResponse | null>
   });
 
   const { data: { user } } = await supabase.auth.getUser();
+  // NO-AUTH mode: no login screen — never block unauthenticated requests.
+  // The whole instance runs as a single shared owner (see lib/supabase-auth.ts).
+  void user;
 
-  if (!user) {
-    return NextResponse.json(
-      { error: 'Not authenticated' },
-      { status: 401 }
-    );
-  }
-
-  // Authenticated — pass through with any refreshed cookies
+  // Pass through with any refreshed cookies
   const authResponse = NextResponse.next({ request });
   response.cookies.getAll().forEach((cookie) => {
     authResponse.cookies.set(cookie.name, cookie.value);
