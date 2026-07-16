@@ -435,7 +435,7 @@ export default function HeaderBar({
             {isCloudVersion() && (
               <>
                 <DropdownMenuItem asChild>
-                  <a href="https://dashboard.ycode.cloud/dashboard">
+                  <a href="#">
                     Dashboard
                   </a>
                 </DropdownMenuItem>
