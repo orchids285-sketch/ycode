@@ -208,6 +208,73 @@ export const creativeTemplates: Record<string, BlockTemplate> = {
       ],
     },
   },
+
+  // --- Slides (16:9 presentation frames) -----------------------------------
+  'slide-title': {
+    icon: 'slide',
+    name: 'Title slide',
+    template: {
+      name: 'div',
+      customName: 'Title slide',
+      classes: ['w-[1280px]', 'h-[720px]', 'shrink-0', 'flex', 'flex-col', 'items-center', 'justify-center', 'text-center', 'gap-[20px]', 'p-[96px]', 'bg-[#ffffff]', 'overflow-hidden', 'shadow-lg'],
+      design: {
+        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '20px' },
+        backgrounds: { isActive: true, backgroundColor: '#ffffff' },
+      },
+      children: [
+        paragraph('PRESENTATION', ['text-[20px]', 'font-[700]', 'tracking-[0.25em]', 'text-[#6366f1]'],
+          { fontSize: '20px', fontWeight: '700', letterSpacing: '0.25', color: '#6366f1' }),
+        heading('Your title here', ['text-[76px]', 'font-[800]', 'leading-[1.05]', 'text-[#111111]'],
+          { fontSize: '76px', fontWeight: '800', lineHeight: '1.05', color: '#111111' }, 'h1'),
+        paragraph('A short, punchy subtitle', ['text-[30px]', 'text-[#6b7280]'],
+          { fontSize: '30px', color: '#6b7280' }),
+      ],
+    },
+  },
+
+  'slide-content': {
+    icon: 'slide',
+    name: 'Content slide',
+    template: {
+      name: 'div',
+      customName: 'Content slide',
+      classes: ['w-[1280px]', 'h-[720px]', 'shrink-0', 'flex', 'flex-col', 'justify-center', 'gap-[24px]', 'p-[96px]', 'bg-[#ffffff]', 'overflow-hidden', 'shadow-lg'],
+      design: {
+        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '24px' },
+        backgrounds: { isActive: true, backgroundColor: '#ffffff' },
+      },
+      children: [
+        heading('Slide heading', ['text-[52px]', 'font-[800]', 'leading-[1.1]', 'text-[#111111]', 'mb-[8px]'],
+          { fontSize: '52px', fontWeight: '800', lineHeight: '1.1', color: '#111111' }, 'h2'),
+        paragraph('•  First key point of this slide', ['text-[30px]', 'text-[#374151]'],
+          { fontSize: '30px', color: '#374151' }),
+        paragraph('•  Second supporting detail', ['text-[30px]', 'text-[#374151]'],
+          { fontSize: '30px', color: '#374151' }),
+        paragraph('•  Third takeaway to remember', ['text-[30px]', 'text-[#374151]'],
+          { fontSize: '30px', color: '#374151' }),
+      ],
+    },
+  },
+
+  'slide-section': {
+    icon: 'slide',
+    name: 'Section slide',
+    template: {
+      name: 'div',
+      customName: 'Section slide',
+      classes: ['w-[1280px]', 'h-[720px]', 'shrink-0', 'flex', 'flex-col', 'justify-center', 'gap-[16px]', 'p-[96px]', 'bg-[#111111]', 'overflow-hidden', 'shadow-lg'],
+      design: {
+        layout: { isActive: true, display: 'Flex', flexDirection: 'column', gap: '16px' },
+        backgrounds: { isActive: true, backgroundColor: '#111111' },
+      },
+      children: [
+        paragraph('SECTION 01', ['text-[20px]', 'font-[700]', 'tracking-[0.25em]', 'text-[#818cf8]'],
+          { fontSize: '20px', fontWeight: '700', letterSpacing: '0.25', color: '#818cf8' }),
+        heading('Section title', ['text-[64px]', 'font-[800]', 'leading-[1.05]', 'text-[#ffffff]'],
+          { fontSize: '64px', fontWeight: '800', lineHeight: '1.05', color: '#ffffff' }, 'h2'),
+      ],
+    },
+  },
 };
 
 export const CREATIVE_TEMPLATE_KEYS = Object.keys(creativeTemplates);

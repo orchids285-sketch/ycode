@@ -14,6 +14,8 @@ import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { getLayerFromTemplate } from '@/lib/templates/blocks';
 import { getTiptapTextContent } from '@/lib/text-format-utils';
+import { useSlidesStore } from '@/stores/useSlidesStore';
+import { enableDeck } from '@/lib/slides';
 import type { Layer } from '@/types';
 
 type Msg = { role: 'user' | 'assistant'; content: string; edited?: boolean };
@@ -224,6 +226,72 @@ function generateAdFromPrompt(text: string, pageId: string): string | null {
   return sentenceCase(applied.join(', ')) + '. Edit any text right on the canvas.';
 }
 
+// --- Prompt → slide DECK generator (presentation mode, fuel-free) -----------
+function collectByRole(root: Layer): { headings: Layer[]; paras: Layer[] } {
+  const headings: Layer[] = [];
+  const paras: Layer[] = [];
+  const walk = (n: Layer, p: Layer | null) => {
+    if (n.name === 'heading') headings.push(n);
+    else if (n.name === 'text' && !(p && p.name === 'button')) paras.push(n);
+    (n.children || []).forEach((c) => walk(c, n));
+  };
+  walk(root, null);
+  return { headings, paras };
+}
+
+function extractTopic(raw: string): string {
+  const m = raw.match(/(?:deck|presentation|slides?|pitch|slideshow|slide deck)\s+(?:about|on|for|regarding|:)?\s*(.+)/i);
+  let topic = m && m[1] ? m[1] : raw;
+  topic = topic.replace(/\b(?:with|in|of)\s+\d+\s+slides?\b.*/i, '').trim();
+  topic = topic.split(/\s*(?:,|;| covering | including | that | featuring )\s*/i)[0].replace(/[.,;:]+$/, '').trim();
+  const words = topic.split(/\s+/).filter(Boolean).slice(0, 9);
+  return words.length ? titleCase(words.join(' ')) : 'Untitled deck';
+}
+
+const DEFAULT_AGENDA = ['Overview', 'Why it matters', 'How it works', 'Key benefits', 'Roadmap', 'Case study', 'Pricing', 'Next steps'];
+
+function extractSlideHeadings(raw: string): string[] {
+  const listM = raw.match(/(?:covering|including|about|sections?|agenda|:)\s+(.+)$/i);
+  if (listM) {
+    const parts = listM[1]
+      .split(/\s*,\s*|\s+and\s+|\s*\/\s*|\s*;\s*/i)
+      .map((s) => s.replace(/[.,;]+$/, '').trim())
+      .filter((s) => s.length >= 2);
+    if (parts.length >= 2) return parts.slice(0, 8).map(sentenceCase);
+  }
+  const cnt = raw.match(/(\d+)\s+slides?/i);
+  const total = cnt ? Math.min(10, Math.max(2, parseInt(cnt[1], 10))) : 5;
+  return DEFAULT_AGENDA.slice(0, total - 1);
+}
+
+function generateDeckFromPrompt(text: string, pageId: string): string | null {
+  const topic = extractTopic(text);
+  const headings = extractSlideHeadings(text);
+  const store = usePagesStore.getState();
+
+  enableDeck(pageId); // make sure the body is a deck stage
+
+  // Title slide
+  const title = getLayerFromTemplate('slide-title');
+  if (title) {
+    const { headings: h, paras: p } = collectByRole(title);
+    if (h[0]) setLayerText(h[0], topic);
+    if (p.length >= 2) setLayerText(p[p.length - 1], `An overview of ${topic.toLowerCase()}`);
+    store.addLayerWithId(pageId, 'body', title);
+  }
+  // Content slides
+  for (const head of headings) {
+    const slide = getLayerFromTemplate('slide-content');
+    if (!slide) continue;
+    const { headings: h } = collectByRole(slide);
+    if (h[0]) setLayerText(h[0], head);
+    store.addLayerWithId(pageId, 'body', slide);
+  }
+  void store.saveDraft(pageId);
+  const n = headings.length + 1;
+  return `Built a ${n}-slide deck on “${topic}”. Each slide is fully editable on the canvas — click any text to rewrite it.`;
+}
+
 function SendIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
@@ -251,6 +319,15 @@ export default function AiChat() {
     const next: Msg[] = [...messages, { role: 'user', content: text }];
     setMessages(next);
     setInput('');
+
+    // Presentation mode: the prompt builds a slide DECK instead of an ad.
+    if (useSlidesStore.getState().enabled) {
+      const deck = generateDeckFromPrompt(text, currentPageId);
+      if (deck) {
+        setMessages((m) => [...m, { role: 'assistant', content: deck, edited: true }]);
+        return;
+      }
+    }
 
     // Offline, no LLM key needed: first try to GENERATE a custom ad from the
     // brief; if it isn't a content brief, fall back to the simple command layer

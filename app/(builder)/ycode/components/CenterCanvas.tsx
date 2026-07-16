@@ -96,6 +96,9 @@ import TemplatesMenu from './TemplatesMenu';
 import AdFormatMenu from './AdFormatMenu';
 import BackgroundMenu from './BackgroundMenu';
 import ExportCreativeButton from './ExportCreativeButton';
+import SlidesToggle from './SlidesToggle';
+import SlidesBar from './SlidesBar';
+import { useSlidesStore } from '@/stores/useSlidesStore';
 
 type ViewportMode = 'desktop' | 'tablet' | 'mobile';
 
@@ -147,6 +150,7 @@ function ViewportZoomControls({
   onZoomToFit,
   onAutofit,
 }: ViewportZoomControlsProps) {
+  const slidesMode = useSlidesStore((s) => s.enabled);
   return (
     <div className="flex justify-center gap-2">
       <Tabs value={viewportMode} onValueChange={(v) => onViewportChange(v as ViewportMode)}>
@@ -156,13 +160,22 @@ function ViewportZoomControls({
           <TabsTrigger value="mobile" title="Mobile View">Phone</TabsTrigger>
         </TabsList>
       </Tabs>
-      {/* Start from a ready-made ad composition */}
-      <TemplatesMenu />
-      {/* Ad-format presets — size the creative to a standard ad canvas */}
-      <AdFormatMenu />
-      {/* One-click background (solid / gradient) for the creative frame */}
-      <BackgroundMenu />
-      {/* Export the sized creative as a downloadable image (PNG/JPG) */}
+      {/* Mode switch: ad creator ↔ presentation (slides) builder */}
+      <SlidesToggle />
+      {slidesMode ? (
+        /* Presentation mode — slide controls replace the ad menus */
+        <SlidesBar />
+      ) : (
+        <>
+          {/* Start from a ready-made ad composition */}
+          <TemplatesMenu />
+          {/* Ad-format presets — size the creative to a standard ad canvas */}
+          <AdFormatMenu />
+          {/* One-click background (solid / gradient) for the creative frame */}
+          <BackgroundMenu />
+        </>
+      )}
+      {/* Export the creative / deck as a downloadable image or video */}
       <ExportCreativeButton />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
