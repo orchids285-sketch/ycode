@@ -97,7 +97,7 @@ import AdFormatMenu from './AdFormatMenu';
 import BackgroundMenu from './BackgroundMenu';
 import ExportCreativeButton from './ExportCreativeButton';
 import SlidesToggle from './SlidesToggle';
-import SlidesBar from './SlidesBar';
+import PresentonEmbed from './PresentonEmbed';
 import { useSlidesStore } from '@/stores/useSlidesStore';
 
 type ViewportMode = 'desktop' | 'tablet' | 'mobile';
@@ -160,12 +160,10 @@ function ViewportZoomControls({
           <TabsTrigger value="mobile" title="Mobile View">Phone</TabsTrigger>
         </TabsList>
       </Tabs>
-      {/* Mode switch: ad creator ↔ presentation (slides) builder */}
+      {/* Mode switch: ad creator ↔ presentation (Presenton) */}
       <SlidesToggle />
-      {slidesMode ? (
-        /* Presentation mode — slide controls replace the ad menus */
-        <SlidesBar />
-      ) : (
+      {/* Ad controls — hidden in presentation mode (Presenton has its own) */}
+      {!slidesMode && (
         <>
           {/* Start from a ready-made ad composition */}
           <TemplatesMenu />
@@ -173,10 +171,10 @@ function ViewportZoomControls({
           <AdFormatMenu />
           {/* One-click background (solid / gradient) for the creative frame */}
           <BackgroundMenu />
+          {/* Export the creative as a downloadable image or video */}
+          <ExportCreativeButton />
         </>
       )}
-      {/* Export the creative / deck as a downloadable image or video */}
-      <ExportCreativeButton />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -2577,6 +2575,8 @@ const CenterCanvas = React.memo(function CenterCanvas({
         ref={canvasContainerRef}
         className="flex-1 relative overflow-hidden bg-neutral-50 dark:bg-neutral-950/80 select-none"
       >
+        {/* Slides mode: the real Presenton app runs full-bleed over the canvas */}
+        <PresentonEmbed />
         {/* Loading skeleton overlay when draft is being fetched */}
         {isDraftLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-neutral-50/80 dark:bg-neutral-950/80 backdrop-blur-sm">
