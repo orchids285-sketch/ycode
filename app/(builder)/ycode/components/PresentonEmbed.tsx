@@ -3,14 +3,15 @@
 /**
  * Presentation mode = the real Presenton (open-source AI presentation
  * generator) running inside the editor. When Slides mode is on we cover the
- * canvas with a full-bleed Presenton iframe — nothing is re-created here, the
- * actual Presenton app does the deck building. Self-hosted on Railway; it sends
- * no X-Frame-Options / CSP frame-ancestors, so it embeds directly.
+ * canvas with a full-bleed iframe — nothing is re-created here, the actual
+ * Presenton app builds the decks. We point at the white-label GATEWAY, not
+ * Presenton directly: the gateway strips auth (no login/create-admin gate),
+ * removes Presenton branding, and strips CSP/X-Frame-Options so it embeds.
  */
 import { useSlidesStore } from '@/stores/useSlidesStore';
 
 const PRESENTON_URL =
-  process.env.NEXT_PUBLIC_PRESENTON_URL || 'https://presenton-production.up.railway.app';
+  process.env.NEXT_PUBLIC_PRESENTON_URL || 'https://presenton-gateway-production.up.railway.app';
 
 export default function PresentonEmbed() {
   const enabled = useSlidesStore((s) => s.enabled);
