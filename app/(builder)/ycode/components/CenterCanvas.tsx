@@ -634,6 +634,10 @@ const CenterCanvas = React.memo(function CenterCanvas({
   // State for iframe element (for SelectionOverlay)
   const [canvasIframeElement, setCanvasIframeElement] = useState<HTMLIFrameElement | null>(null);
 
+  // Presentation (Slides) mode: the embedded Presenton covers the canvas, so
+  // Ycode's selection/hover outlines must not draw on top of it.
+  const slidesMode = useSlidesStore((s) => s.enabled);
+
   // Track iframe content size from iframe reports
   const [reportedContentHeight, setReportedContentHeight] = useState(0);
   const [reportedContentWidth, setReportedContentWidth] = useState(0);
@@ -2594,7 +2598,7 @@ const CenterCanvas = React.memo(function CenterCanvas({
         )}
 
         {/* Selection overlay - renders outlines on top of the iframe */}
-        {!isPreviewMode && activeSidebarTab !== 'pages' && canvasIframeElement && (
+        {!isPreviewMode && !slidesMode && activeSidebarTab !== 'pages' && canvasIframeElement && (
           <SelectionOverlay
             iframeElement={canvasIframeElement}
             containerElement={scrollContainerRef.current}
