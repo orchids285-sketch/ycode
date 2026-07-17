@@ -10,8 +10,9 @@
  */
 import { useSlidesStore } from '@/stores/useSlidesStore';
 
+// Land straight on the tool (/upload), skipping Presenton's Home/onboarding.
 const PRESENTON_URL =
-  process.env.NEXT_PUBLIC_PRESENTON_URL || 'https://presenton-gateway-production.up.railway.app';
+  process.env.NEXT_PUBLIC_PRESENTON_URL || 'https://presenton-gateway-production.up.railway.app/upload';
 
 export default function PresentonEmbed() {
   const enabled = useSlidesStore((s) => s.enabled);
