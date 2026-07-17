@@ -251,7 +251,9 @@ function extractTopic(raw: string): string {
 const DEFAULT_AGENDA = ['Overview', 'Why it matters', 'How it works', 'Key benefits', 'Roadmap', 'Case study', 'Pricing', 'Next steps'];
 
 function extractSlideHeadings(raw: string): string[] {
-  const listM = raw.match(/(?:covering|including|about|sections?|agenda|:)\s+(.+)$/i);
+  // "covering / including / sections / agenda / :" introduce the slide list.
+  // NOT "about" — that introduces the topic (handled by extractTopic).
+  const listM = raw.match(/(?:covering|including|with sections?|sections?|agenda|:)\s+(.+)$/i);
   if (listM) {
     const parts = listM[1]
       .split(/\s*,\s*|\s+and\s+|\s*\/\s*|\s*;\s*/i)
