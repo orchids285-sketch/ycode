@@ -26,6 +26,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import CenterCanvas from '../components/CenterCanvas';
 import HeaderBar from '../components/HeaderBar';
 import LeftSidebar from '../components/LeftSidebar';
+import { useSlidesStore } from '@/stores/useSlidesStore';
 import SettingsContent from '../components/SettingsContent';
 import LocalizationContent from '../components/LocalizationContent';
 import ProfileContent from '../components/ProfileContent';
@@ -121,6 +122,9 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
   const setCurrentPageId = useEditorStore((state) => state.setCurrentPageId);
   const activeBreakpoint = useEditorStore((state) => state.activeBreakpoint);
   const setActiveBreakpoint = useEditorStore((state) => state.setActiveBreakpoint);
+  // Presentation (Slides) mode: hide the layers/design sidebars so the embedded
+  // Presenton tool fills the width (its own slide panel becomes the left bar).
+  const slidesMode = useSlidesStore((state) => state.enabled);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const canUndo = useEditorStore((state) => state.canUndo);
@@ -2234,7 +2238,7 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
             {/* Left Sidebar - Pages & Layers
                 - Hidden in CMS mode
                 - For editor role: only shown when "Pages" tab is active */}
-            <div className={activeTab === 'cms' || (isEditor && activeTab !== 'pages') ? 'hidden' : 'contents'}>
+            <div className={activeTab === 'cms' || (isEditor && activeTab !== 'pages') || slidesMode ? 'hidden' : 'contents'}>
               <LeftSidebar
                 onLayerSelect={(layerId) => {
                   setSelectedLayerId(layerId);
@@ -2274,8 +2278,8 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
                 liveComponentUpdates={liveComponentUpdates}
               />
 
-              {/* Right Sidebar - Properties (hidden for editor role) */}
-              {!isEditor && (
+              {/* Right Sidebar - Properties (hidden for editor role and in slides mode) */}
+              {!isEditor && !slidesMode && (
                 <RightSidebar
                   onLayerUpdate={handleLayerUpdate}
                 />

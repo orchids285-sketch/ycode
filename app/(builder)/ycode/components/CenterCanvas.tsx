@@ -153,13 +153,16 @@ function ViewportZoomControls({
   const slidesMode = useSlidesStore((s) => s.enabled);
   return (
     <div className="flex justify-center gap-2">
-      <Tabs value={viewportMode} onValueChange={(v) => onViewportChange(v as ViewportMode)}>
-        <TabsList className="w-50">
-          <TabsTrigger value="desktop" title="Desktop View">Desktop</TabsTrigger>
-          <TabsTrigger value="tablet" title="Tablet View">Tablet</TabsTrigger>
-          <TabsTrigger value="mobile" title="Mobile View">Phone</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Viewport sizes — meaningless in presentation mode, so hidden there */}
+      {!slidesMode && (
+        <Tabs value={viewportMode} onValueChange={(v) => onViewportChange(v as ViewportMode)}>
+          <TabsList className="w-50">
+            <TabsTrigger value="desktop" title="Desktop View">Desktop</TabsTrigger>
+            <TabsTrigger value="tablet" title="Tablet View">Tablet</TabsTrigger>
+            <TabsTrigger value="mobile" title="Mobile View">Phone</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       {/* Mode switch: ad creator ↔ presentation (Presenton) */}
       <SlidesToggle />
       {/* Ad controls — hidden in presentation mode (Presenton has its own) */}
@@ -175,6 +178,8 @@ function ViewportZoomControls({
           <ExportCreativeButton />
         </>
       )}
+      {/* Zoom — hidden in presentation mode (Presenton controls its own view) */}
+      {!slidesMode && (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -220,6 +225,7 @@ function ViewportZoomControls({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      )}
     </div>
   );
 }
