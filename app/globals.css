@@ -334,3 +334,7 @@
 [data-sonner-toast][data-styled='true'] [data-content] {
   gap: 0;
 }
+
+/* Althaeion brand font — Satoshi on the builder chrome, NOT the user canvas */
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap');
+*:not([class*="material-symbols"]):not([class*="material-icons"]):not([class*="fa-" i]):not([class*="icon" i]):not([class*="canvas" i]):not([class*="preview" i]):not([contenteditable]):not(iframe):not(iframe *):not(i):not(svg):not(svg *){font-family:"Satoshi",system-ui,sans-serif!important}
